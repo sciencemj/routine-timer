@@ -305,7 +305,7 @@ mod tests {
 
 #[cfg(test)]
 mod stats_tests {
-    use super::{today_stats, TodayStats};
+    use super::today_stats;
     use crate::core::model::*;
     use chrono::{Utc, TimeZone, FixedOffset};
     fn utc() -> FixedOffset { FixedOffset::east_opt(0).unwrap() }
