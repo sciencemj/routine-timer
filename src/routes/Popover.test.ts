@@ -36,7 +36,7 @@ describe('Popover', () => {
 
   it('shows today summary after stats load', async () => {
     const { findByText } = render(Popover);
-    // stats.remaining_secs = 3600 → formatDuration → '01:00:00', completed = 2
+    // stats.remaining_secs = 3600 → formatDurationKo → '1시간', completed = 2
     const el = await findByText(/남은.*완료/);
     expect(el).toBeInTheDocument();
   });
@@ -65,7 +65,7 @@ describe('Popover', () => {
     // Emit the routines://changed event — triggers routinesStore.refresh()
     emitTauri('routines://changed', {});
 
-    // Wait for updated summary to appear (completed: 5, remaining: 1800s → 00:30:00)
+    // Wait for updated summary to appear (completed: 5, remaining: 1800s → 30분)
     const updated = await findByText(/5개 완료/);
     expect(updated).toBeInTheDocument();
   });

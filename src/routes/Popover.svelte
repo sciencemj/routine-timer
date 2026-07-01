@@ -3,11 +3,17 @@
   import { routinesStore, initRoutinesListeners } from '$lib/routines.svelte';
   import { themeStore } from '$lib/theme.svelte';
   import { commands } from '$lib/commands';
-  import { formatDuration } from '$lib/time';
+  import { formatDurationKo } from '$lib/time';
   import RingTimer from '$lib/components/RingTimer.svelte';
 
   const stats = $derived(routinesStore.stats);
   const routine = $derived(routinesStore.list.find((r) => r.id === timer.routineId));
+
+  const headerIcon = $derived(routine?.icon ?? '⏱️');
+  const headerName = $derived(routine?.name ?? '루틴 타이머');
+  const headerStatus = $derived(
+    timer.isActive ? (timer.phase === 'Break' ? '휴식 중' : '집중 중') : '루틴을 선택해 시작하세요'
+  );
 
   // Alive-flag async cleanup pattern (spec §9)
   $effect(() => {
@@ -24,23 +30,29 @@
 </script>
 
 <div class="popover">
+  <!-- Header: current routine chip + name + status -->
+  <div class="header">
+    <div class="icon-chip">{headerIcon}</div>
+    <div class="header-text">
+      <p class="header-name">{headerName}</p>
+      <p class="header-status">{headerStatus}</p>
+    </div>
+  </div>
+
   <!-- Today summary -->
   <div class="summary">
     {#if stats}
-      <p class="summary-text">남은 {formatDuration(stats.remaining_secs)} · {stats.completed}개 완료</p>
+      <p class="summary-text">남은 {formatDurationKo(stats.remaining_secs)} · {stats.completed}개 완료</p>
     {:else}
       <p class="summary-text summary-loading">로딩 중…</p>
     {/if}
   </div>
 
   {#if timer.isActive}
-    <!-- Active state: current routine + ring timer + pause/resume -->
+    <!-- Active state: ring timer + pause/resume -->
     <div class="active-view">
-      {#if routine}
-        <p class="routine-name">{routine.icon} {routine.name}</p>
-      {/if}
       <div class="ring-wrapper">
-        <RingTimer progress={timer.progress} label={timer.label} size={140} />
+        <RingTimer progress={timer.progress} label={timer.label} size={120} />
       </div>
       <div class="controls">
         {#if timer.state === 'Paused'}
@@ -71,29 +83,72 @@
   .popover {
     display: flex;
     flex-direction: column;
-    gap: 12px;
+    gap: 14px;
     padding: 16px;
     width: 100%;
     min-height: 100%;
     box-sizing: border-box;
-    background: var(--bg, #fff);
-    color: var(--text, #111);
+    background: var(--bg);
+    color: var(--ink);
+    font-family: var(--font-ui);
   }
 
-  .summary {
-    padding-bottom: 8px;
-    border-bottom: 1px solid var(--border, #e5e7eb);
+  /* Header */
+  .header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: var(--r-card);
+    padding: 10px 12px;
+  }
+  .icon-chip {
+    width: 34px;
+    height: 34px;
+    min-width: 34px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--accent-bg);
+    border-radius: 10px;
+    font-size: 17px;
+    line-height: 1;
+  }
+  .header-text {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+  }
+  .header-name {
+    margin: 0;
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--ink);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .header-status {
+    margin: 0;
+    font-size: 11.5px;
+    color: var(--muted);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
 
+  /* Today summary */
   .summary-text {
     margin: 0;
-    font-size: 0.85rem;
-    color: var(--muted, #6b7280);
+    font-size: 12.5px;
+    color: var(--muted);
     font-weight: 500;
   }
-
   .summary-loading {
-    opacity: 0.5;
+    opacity: 0.6;
   }
 
   /* Active view */
@@ -101,14 +156,8 @@
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: 10px;
-  }
-
-  .routine-name {
-    margin: 0;
-    font-size: 1rem;
-    font-weight: 600;
-    color: var(--text, #111);
+    gap: 12px;
+    padding-top: 4px;
   }
 
   .ring-wrapper {
@@ -124,24 +173,31 @@
 
   .btn-primary,
   .btn-secondary {
-    padding: 8px 20px;
+    padding: 8px 22px;
     border: none;
-    border-radius: 8px;
-    font-size: 0.9rem;
+    border-radius: var(--r-btn);
+    font-size: 13px;
+    font-weight: 600;
+    font-family: var(--font-ui);
     cursor: pointer;
+    transition: opacity 150ms;
+  }
+  .btn-primary:hover,
+  .btn-secondary:hover {
+    opacity: 0.85;
   }
 
   .btn-primary {
-    background: var(--accent, #4f6ef7);
+    background: var(--accent);
     color: #fff;
   }
 
   .btn-secondary {
-    background: var(--surface, #f3f4f6);
-    color: var(--text, #111);
+    background: var(--accent-bg);
+    color: var(--accent);
   }
 
-  /* Inactive: routine list */
+  /* Inactive: quick-start routine list */
   .routine-list {
     display: flex;
     flex-direction: column;
@@ -151,25 +207,28 @@
   .routine-btn {
     display: flex;
     align-items: center;
-    gap: 8px;
-    padding: 10px 12px;
-    background: var(--surface, #f9fafb);
-    border: 1px solid var(--border, #e5e7eb);
-    border-radius: 8px;
-    font-size: 0.9rem;
-    color: var(--text, #111);
+    gap: 10px;
+    padding: 9px 11px;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: var(--r-btn);
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--ink);
+    font-family: var(--font-ui);
     cursor: pointer;
     text-align: left;
     width: 100%;
-    transition: background 0.1s;
+    transition: background 150ms;
   }
 
   .routine-btn:hover {
-    background: var(--surface-hover, #f0f4ff);
+    background: var(--row-hover);
   }
 
   .routine-icon {
-    font-size: 1.1rem;
+    font-size: 16px;
+    line-height: 1;
   }
 
   .routine-label {
@@ -181,8 +240,8 @@
 
   .empty {
     margin: 0;
-    font-size: 0.85rem;
-    color: var(--muted, #9ca3af);
+    font-size: 13px;
+    color: var(--faint);
     text-align: center;
     padding: 16px 0;
   }
