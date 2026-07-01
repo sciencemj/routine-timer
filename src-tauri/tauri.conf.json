@@ -11,7 +11,7 @@
   },
   "app": {
     "windows": [
-      { "label": "main", "url": "index.html#/", "title": "Routine Timer", "width": 900, "height": 640 }
+      { "label": "main", "url": "index.html#/", "title": "Routine Timer", "width": 900, "height": 880, "minWidth": 680, "minHeight": 760 }
     ],
     "security": { "csp": null }
   },
