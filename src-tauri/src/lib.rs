@@ -30,6 +30,13 @@ pub fn run() {
             commands::routine_update,
             commands::routine_delete,
             commands::routine_reorder,
+            commands::timer_start,
+            commands::timer_pause,
+            commands::timer_resume,
+            commands::timer_stop,
+            commands::timer_skip_break,
+            commands::timer_switch,
+            commands::timer_get_state,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
