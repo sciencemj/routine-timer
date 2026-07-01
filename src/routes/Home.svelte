@@ -2,9 +2,12 @@
   import { push } from 'svelte-spa-router';
   import { timer } from '$lib/timer.svelte';
   import { routinesStore, initRoutinesListeners } from '$lib/routines.svelte';
-  import { formatDuration, formatClock } from '$lib/time';
+  import { formatDuration } from '$lib/time';
   import { commands } from '$lib/commands';
-  import RoutineCard from '$lib/components/RoutineCard.svelte';
+  import RoutineRow from '$lib/components/RoutineRow.svelte';
+  import NewRoutineModal from '$lib/components/NewRoutineModal.svelte';
+
+  const DAY_NAMES = ['일요일', '월요일', '화요일', '수요일', '목요일', '금요일', '토요일'];
 
   // Live clock — refreshed every minute
   let now = $state(new Date());
@@ -13,11 +16,21 @@
     return () => clearInterval(id);
   });
 
-  // Greeting based on current hour — derives from reactive `now` so it flips at midnight
-  const greeting = $derived(now.getHours() < 12 ? '좋은 아침이에요' : '좋은 오후예요');
+  const dateEyebrow = $derived(`${now.getMonth() + 1}월 ${now.getDate()}일 ${DAY_NAMES[now.getDay()]}`);
+  const greeting = $derived(now.getHours() < 12 ? '좋은 아침이에요.' : '좋은 오후예요.');
 
-  // Convenience alias
   const stats = $derived(routinesStore.stats);
+  const totalTarget = $derived(routinesStore.list.reduce((acc, r) => acc + r.target_seconds, 0));
+  const overallPercent = $derived(
+    stats && totalTarget > 0 ? Math.min(1, stats.total_secs / totalTarget) : 0
+  );
+
+  // SVG ring constants
+  const RING_R = 32;
+  const CIRCUMFERENCE = 2 * Math.PI * RING_R; // ≈ 201.06
+
+  // Modal state
+  let showNew = $state(false);
 
   // On mount: load routines + subscribe to change events
   $effect(() => {
@@ -35,86 +48,241 @@
 </script>
 
 <div class="home">
-  <header>
-    <p class="greeting">{greeting}</p>
-    <p class="clock">{formatClock(now)}</p>
-  </header>
+  <div class="content">
+    <!-- Date eyebrow -->
+    <p class="date-eyebrow">{dateEyebrow}</p>
 
-  <section class="summary">
+    <!-- Greeting -->
+    <h1 class="greeting">{greeting}</h1>
+
+    <!-- Subtext + goal card (stats guard) -->
     {#if stats}
-      <p class="summary-bar">남은 {formatDuration(stats.remaining_secs)} · {stats.routine_count}개 루틴 중 {stats.completed}개 완료</p>
-      <p class="daily-focus">하루 집중 {formatDuration(stats.total_secs)}</p>
-      <p class="streak">연속 {stats.streak}일 · 최고 {stats.best_streak}일</p>
+      <p class="subtext">오늘 <span class="accent">{formatDuration(stats.total_secs)}</span> 집중했어요.</p>
+
+      <!-- 오늘의 목표 card -->
+      <div class="goal-card">
+        <!-- SVG ring -->
+        <svg width="80" height="80" class="ring-svg" aria-hidden="true">
+          <!-- Track -->
+          <circle
+            cx="40" cy="40" r={RING_R}
+            fill="none"
+            stroke="var(--ring-track)"
+            stroke-width="9"
+          />
+          <!-- Progress arc -->
+          <circle
+            cx="40" cy="40" r={RING_R}
+            fill="none"
+            stroke="var(--accent)"
+            stroke-width="9"
+            stroke-linecap="round"
+            stroke-dasharray={CIRCUMFERENCE}
+            stroke-dashoffset={CIRCUMFERENCE * (1 - overallPercent)}
+            transform="rotate(-90 40 40)"
+          />
+          <!-- Center % badge -->
+          <text
+            x="40" y="40"
+            text-anchor="middle"
+            dominant-baseline="central"
+            font-size="13"
+            font-weight="700"
+            fill="var(--ink)"
+            font-family="var(--font-ui)"
+          >{Math.round(overallPercent * 100)}%</text>
+        </svg>
+
+        <!-- Right info -->
+        <div class="goal-info">
+          <p class="goal-label">오늘의 목표</p>
+          <p class="goal-numbers">
+            <span class="goal-done">{formatDuration(stats.total_secs)}</span><!--
+            --><span class="goal-target"> / {formatDuration(totalTarget)}</span>
+          </p>
+          <div class="h-bar-track">
+            <div class="h-bar-fill" style="width: {overallPercent * 100}%"></div>
+          </div>
+          <p class="goal-caption">남은 {formatDuration(stats.remaining_secs)} · {stats.routine_count}개 루틴 중 {stats.completed}개 완료</p>
+        </div>
+      </div>
     {/if}
-  </section>
 
-  <section class="routines">
-    {#each routinesStore.list as routine (routine.id)}
-      <RoutineCard
-        {routine}
-        todaySecs={routinesStore.secondsFor(routine.id)}
-        active={timer.routineId === routine.id && timer.isActive}
-        onclick={() => start(routine.id)}
-      />
-    {/each}
-  </section>
+    <!-- 오늘의 루틴 section -->
+    <div class="routines-section">
+      <div class="section-header">
+        <h2 class="section-title">오늘의 루틴</h2>
+        <button class="new-pill" onclick={() => { showNew = true; }}>+ 새 루틴</button>
+      </div>
 
-  <button class="new-routine" onclick={() => push('/settings')}>새 루틴</button>
+      <div class="routine-list">
+        {#if routinesStore.list.length === 0}
+          <p class="empty-state">아직 루틴이 없어요 — 새 루틴을 추가하세요</p>
+        {:else}
+          {#each routinesStore.list as routine (routine.id)}
+            <RoutineRow
+              {routine}
+              todaySecs={routinesStore.secondsFor(routine.id)}
+              active={timer.routineId === routine.id && timer.isActive}
+              onclick={() => start(routine.id)}
+            />
+          {/each}
+        {/if}
+      </div>
+    </div>
+  </div>
 </div>
+
+<NewRoutineModal open={showNew} onclose={() => { showNew = false; }} />
 
 <style>
   .home {
+    min-height: 100%;
+    background: var(--bg);
+    display: flex;
+    justify-content: center;
+  }
+  .content {
+    width: 100%;
+    max-width: 544px;
+    padding: 28px 28px 40px;
     display: flex;
     flex-direction: column;
     gap: 16px;
-    padding: 24px;
   }
 
-  header {
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
+  /* Date eyebrow */
+  .date-eyebrow {
+    margin: 0;
+    font-size: 11px;
+    font-weight: 500;
+    color: var(--faint);
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
   }
 
+  /* Greeting */
   .greeting {
-    font-size: 1.4rem;
-    font-weight: 700;
     margin: 0;
-    color: var(--text);
+    font-size: 25px;
+    font-weight: 600;
+    color: var(--ink);
+    line-height: 1.2;
   }
 
-  .clock {
-    font-size: 1rem;
+  /* Subtext */
+  .subtext {
     margin: 0;
+    font-size: 14px;
     color: var(--muted);
   }
+  .accent {
+    color: var(--accent);
+    font-weight: 500;
+  }
 
-  .summary {
+  /* Goal card */
+  .goal-card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: var(--r-card);
+    padding: 20px;
+    display: flex;
+    align-items: center;
+    gap: 20px;
+  }
+  .ring-svg {
+    flex-shrink: 0;
+  }
+  .goal-info {
+    flex: 1;
     display: flex;
     flex-direction: column;
-    gap: 4px;
-    font-size: 0.9rem;
-    color: var(--text);
+    gap: 6px;
+    min-width: 0;
   }
-
-  .summary p {
+  .goal-label {
     margin: 0;
+    font-size: 12px;
+    color: var(--faint);
+  }
+  .goal-numbers {
+    margin: 0;
+    font-size: 20px;
+    line-height: 1;
+  }
+  .goal-done {
+    font-weight: 700;
+    color: var(--ink);
+  }
+  .goal-target {
+    font-size: 15px;
+    color: var(--faint2);
+  }
+  .h-bar-track {
+    width: 100%;
+    height: 5px;
+    background: var(--track);
+    border-radius: var(--r-bar);
+    overflow: hidden;
+  }
+  .h-bar-fill {
+    height: 100%;
+    background: var(--accent);
+    border-radius: var(--r-bar);
+    transition: width 300ms;
+  }
+  .goal-caption {
+    margin: 0;
+    font-size: 12px;
+    color: var(--faint);
   }
 
-  .routines {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
-    gap: 12px;
+  /* Routines section */
+  .routines-section {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
   }
-
-  .new-routine {
-    align-self: flex-start;
-    padding: 8px 20px;
-    background: var(--accent, #4f6ef7);
-    color: #fff;
+  .section-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .section-title {
+    margin: 0;
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--ink);
+  }
+  .new-pill {
+    padding: 5px 14px;
+    background: var(--accent-bg);
+    color: var(--accent);
     border: none;
-    border-radius: 8px;
-    font-size: 0.9rem;
+    border-radius: var(--r-pill);
+    font-size: 12px;
+    font-weight: 600;
     cursor: pointer;
+    font-family: var(--font-ui);
+    transition: opacity 150ms;
+  }
+  .new-pill:hover {
+    opacity: 0.8;
+  }
+  .routine-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .empty-state {
+    margin: 0;
+    padding: 20px;
+    text-align: center;
+    font-size: 14px;
+    color: var(--faint);
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: var(--r-card);
   }
 </style>
