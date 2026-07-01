@@ -1,3 +1,5 @@
+pub mod routines;
+
 use rusqlite::Connection;
 
 pub fn open(path: &str) -> rusqlite::Result<Connection> {
