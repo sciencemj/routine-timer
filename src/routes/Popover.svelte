@@ -55,6 +55,7 @@
 </script>
 
 <div class="popover-shell">
+  <div class="popover-body">
   {#if view === 'focus'}
     <FocusView onBack={() => (view = 'dashboard')} size={180} />
   {:else}
@@ -125,6 +126,7 @@
   </div>
     </div>
   {/if}
+  </div>
 </div>
 
 <style>
@@ -145,18 +147,23 @@
     box-sizing: border-box;
   }
 
+  /* Single scroll container for both views (handles a long routine list / tall focus view) */
+  .popover-body {
+    height: 100%;
+    overflow-y: auto;
+  }
+
   .popover {
     display: flex;
     flex-direction: column;
     gap: 14px;
     padding: 16px;
     width: 100%;
-    height: 100%;
+    min-height: 100%;
     box-sizing: border-box;
     background: var(--bg);
     color: var(--ink);
     font-family: var(--font-ui);
-    overflow-y: auto;
   }
 
   /* 오늘의 목표 card */

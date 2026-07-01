@@ -10,10 +10,6 @@
     editing = false,
     onEdit,
     onDelete,
-    onMoveUp,
-    onMoveDown,
-    canMoveUp = false,
-    canMoveDown = false,
     onDragStart,
     onDragOver,
     onDrop,
@@ -27,10 +23,6 @@
     editing?: boolean;
     onEdit?: () => void;
     onDelete?: () => void;
-    onMoveUp?: () => void;
-    onMoveDown?: () => void;
-    canMoveUp?: boolean;
-    canMoveDown?: boolean;
     onDragStart?: () => void;
     onDragOver?: () => void;
     onDrop?: () => void;
@@ -64,8 +56,16 @@
   draggable={editing}
   onclick={handlePrimary}
   onkeydown={handleKeydown}
-  ondragstart={() => onDragStart?.()}
-  ondragover={(e) => { e.preventDefault(); onDragOver?.(); }}
+  ondragstart={(e) => {
+    e.dataTransfer?.setData('text/plain', String(routine.id));
+    if (e.dataTransfer) e.dataTransfer.effectAllowed = 'move';
+    onDragStart?.();
+  }}
+  ondragover={(e) => {
+    e.preventDefault();
+    if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
+    onDragOver?.();
+  }}
   ondrop={(e) => { e.preventDefault(); onDrop?.(); }}
   ondragend={() => onDragEnd?.()}
 >
@@ -86,20 +86,7 @@
   </div>
   {#if editing}
     <div class="edit-controls">
-      <button
-        type="button"
-        class="icon-btn"
-        onclick={(e) => { e.stopPropagation(); onMoveUp?.(); }}
-        disabled={!canMoveUp}
-        aria-label="위로"
-      >↑</button>
-      <button
-        type="button"
-        class="icon-btn"
-        onclick={(e) => { e.stopPropagation(); onMoveDown?.(); }}
-        disabled={!canMoveDown}
-        aria-label="아래로"
-      >↓</button>
+      <span class="drag-handle" aria-hidden="true">⠿</span>
       <button
         type="button"
         class="icon-btn danger"
@@ -215,6 +202,12 @@
     align-items: center;
     gap: 6px;
     flex-shrink: 0;
+  }
+  .drag-handle {
+    color: var(--chev);
+    font-size: 15px;
+    cursor: grab;
+    user-select: none;
   }
   .icon-btn {
     width: 26px;

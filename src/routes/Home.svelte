@@ -75,22 +75,6 @@
     await routinesStore.refresh();
   }
 
-  async function moveUp(index: number) {
-    if (index <= 0) return;
-    const newList = [...routinesStore.list];
-    [newList[index - 1], newList[index]] = [newList[index], newList[index - 1]];
-    await commands.routineReorder(newList.map((r) => r.id));
-    await routinesStore.refresh();
-  }
-
-  async function moveDown(index: number) {
-    if (index >= routinesStore.list.length - 1) return;
-    const newList = [...routinesStore.list];
-    [newList[index], newList[index + 1]] = [newList[index + 1], newList[index]];
-    await commands.routineReorder(newList.map((r) => r.id));
-    await routinesStore.refresh();
-  }
-
   async function reorder(target: number) {
     const from = dragIndex;
     if (from == null || from === target) {
@@ -193,10 +177,6 @@
               {editing}
               onEdit={() => openEdit(routine)}
               onDelete={() => deleteRoutine(routine.id)}
-              onMoveUp={() => moveUp(i)}
-              onMoveDown={() => moveDown(i)}
-              canMoveUp={i > 0}
-              canMoveDown={i < routinesStore.list.length - 1}
               onDragStart={() => (dragIndex = i)}
               onDragOver={() => (overIndex = i)}
               onDrop={() => reorder(i)}
