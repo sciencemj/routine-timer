@@ -1,5 +1,5 @@
 use chrono::{DateTime, Utc};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use crate::core::clock::Clock;
 use crate::core::model::Mode;
@@ -14,7 +14,7 @@ pub enum TimerState {
     Break,
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize)]
 pub enum Phase {
     Focus,
     Break,
@@ -29,6 +29,15 @@ pub enum TimerEvent {
 
 // ── Config / snapshot / completed-session ──────────────────────────────────
 
+/// Suspended pomodoro state persisted per-routine so an interrupted pomodoro
+/// block RESUMES (remaining time, phase, session index) instead of restarting.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ResumeState {
+    pub remaining_secs: i64,
+    pub phase: Phase,
+    pub pomodoro_index: u32,
+}
+
 pub struct TimerConfig {
     pub routine_id: i64,
     pub mode: Mode,
@@ -36,6 +45,9 @@ pub struct TimerConfig {
     pub break_secs: i64,
     pub target_secs: i64,
     pub already_done_secs: i64,
+    /// When Some and mode is Pomodoro, `start` resumes from this state instead
+    /// of a fresh Focus interval. Ignored for Continuous mode.
+    pub resume: Option<ResumeState>,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -136,10 +148,19 @@ impl TimerEngine {
         self.pending_completed = None;
         self.pre_pause_state = None;
         match cfg.mode {
-            Mode::Pomodoro => {
-                self.pomodoro_index = 1;
-                self.remaining = cfg.focus_secs;
-            }
+            Mode::Pomodoro => match cfg.resume {
+                // RESUME: restore the suspended block (phase, remaining, index).
+                Some(rs) => {
+                    self.phase = rs.phase;
+                    self.remaining = rs.remaining_secs;
+                    self.pomodoro_index = rs.pomodoro_index;
+                }
+                // Fresh start: begin at Focus interval 1.
+                None => {
+                    self.pomodoro_index = 1;
+                    self.remaining = cfg.focus_secs;
+                }
+            },
             Mode::Continuous => {
                 self.pomodoro_index = 0;
                 self.remaining = cfg.target_secs - cfg.already_done_secs;
@@ -325,6 +346,7 @@ mod tests {
             break_secs: 0,
             target_secs: 60,
             already_done_secs: 0,
+            resume: None,
         }
     }
 
@@ -353,7 +375,7 @@ mod tests {
     #[test]
     fn pomodoro_cycles_focus_break_and_counts_index() {
         let mut e = TimerEngine::new(Box::new(FakeClock(Utc.timestamp_opt(1_700_000_000,0).unwrap())));
-        e.start(TimerConfig { routine_id: 1, mode: Mode::Pomodoro, focus_secs: 2, break_secs: 1, target_secs: 3600, already_done_secs: 0 });
+        e.start(TimerConfig { routine_id: 1, mode: Mode::Pomodoro, focus_secs: 2, break_secs: 1, target_secs: 3600, already_done_secs: 0, resume: None });
         assert_eq!(e.snapshot().phase, Phase::Focus);
         assert_eq!(e.snapshot().pomodoro_index, 1);
         e.tick();                              // focus 1 left
@@ -371,7 +393,7 @@ mod tests {
     #[test]
     fn pomodoro_break_does_not_add_focus_seconds() {
         let mut e = TimerEngine::new(Box::new(FakeClock(Utc.timestamp_opt(1_700_000_000,0).unwrap())));
-        e.start(TimerConfig { routine_id: 1, mode: Mode::Pomodoro, focus_secs: 1, break_secs: 2, target_secs: 3600, already_done_secs: 10 });
+        e.start(TimerConfig { routine_id: 1, mode: Mode::Pomodoro, focus_secs: 1, break_secs: 2, target_secs: 3600, already_done_secs: 10, resume: None });
         e.tick();                              // focus done -> break
         let s = e.tick();                      // in break
         assert_eq!(s.session_seconds, 1);
@@ -407,7 +429,7 @@ mod tests {
     #[test]
     fn skip_break_jumps_to_next_focus() {
         let mut e = TimerEngine::new(Box::new(FakeClock(Utc.timestamp_opt(1_700_000_000,0).unwrap())));
-        e.start(TimerConfig { routine_id: 1, mode: Mode::Pomodoro, focus_secs: 1, break_secs: 30, target_secs: 3600, already_done_secs: 0 });
+        e.start(TimerConfig { routine_id: 1, mode: Mode::Pomodoro, focus_secs: 1, break_secs: 30, target_secs: 3600, already_done_secs: 0, resume: None });
         e.tick();                        // -> Break (30 left)
         e.skip_break();
         let s = e.snapshot();
@@ -434,5 +456,31 @@ mod tests {
         assert_eq!(s.state, TimerState::Idle);
         assert_eq!(s.event, None);
         assert!(e.take_completed().is_none()); // drained
+    }
+
+    #[test]
+    fn pomodoro_resume_restores_block() {
+        // With a resume state, start() picks up mid-block instead of at 1500s / index 1.
+        let mut e = engine();
+        e.start(TimerConfig {
+            routine_id: 1, mode: Mode::Pomodoro, focus_secs: 1500, break_secs: 300,
+            target_secs: 3600, already_done_secs: 0,
+            resume: Some(ResumeState { remaining_secs: 700, phase: Phase::Focus, pomodoro_index: 3 }),
+        });
+        let s = e.snapshot();
+        assert_eq!(s.remaining_secs, 700);
+        assert_eq!(s.pomodoro_index, 3);
+        assert_eq!(s.phase, Phase::Focus);
+
+        // Without a resume state, start() begins fresh (focus_secs, index 1).
+        let mut e = engine();
+        e.start(TimerConfig {
+            routine_id: 1, mode: Mode::Pomodoro, focus_secs: 1500, break_secs: 300,
+            target_secs: 3600, already_done_secs: 0, resume: None,
+        });
+        let s = e.snapshot();
+        assert_eq!(s.remaining_secs, 1500);
+        assert_eq!(s.pomodoro_index, 1);
+        assert_eq!(s.phase, Phase::Focus);
     }
 }

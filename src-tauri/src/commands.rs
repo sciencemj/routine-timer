@@ -5,7 +5,7 @@ use chrono::FixedOffset;
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, State};
 use crate::core::model::{FocusSession, Mode, NewRoutine, Routine, StreakRule};
-use crate::core::timer::{TimerConfig, TimerSnapshot};
+use crate::core::timer::{ResumeState, TimerConfig, TimerSnapshot, TimerState};
 use crate::core::stats;
 use crate::state::AppState;
 
@@ -106,6 +106,66 @@ pub fn routine_reorder(
     Ok(())
 }
 
+// ── Suspended-pomodoro persistence ─────────────────────────────────────────
+//
+// A single app_settings row ("pomo_states") holds a JSON map of
+// routine_id (string) -> ResumeState, so an interrupted pomodoro block can
+// RESUME (remaining time, phase, session index) instead of restarting at 25:00.
+
+const POMO_STATES_KEY: &str = "pomo_states";
+
+/// Load the suspended-pomodoro map. Returns empty on missing row or parse error.
+/// JSON keys are strings; they are converted back to i64 routine ids.
+fn load_pomo_states(db: &rusqlite::Connection) -> HashMap<i64, ResumeState> {
+    let raw = match crate::db::settings::get(db, POMO_STATES_KEY) {
+        Ok(Some(s)) => s,
+        _ => return HashMap::new(),
+    };
+    let parsed: HashMap<String, ResumeState> = match serde_json::from_str(&raw) {
+        Ok(m) => m,
+        Err(_) => return HashMap::new(),
+    };
+    parsed
+        .into_iter()
+        .filter_map(|(k, v)| k.parse::<i64>().ok().map(|id| (id, v)))
+        .collect()
+}
+
+/// Persist the suspended-pomodoro map with string routine-id keys.
+fn save_pomo_states(db: &rusqlite::Connection, map: &HashMap<i64, ResumeState>) -> Result<(), String> {
+    let stringed: HashMap<String, &ResumeState> =
+        map.iter().map(|(k, v)| (k.to_string(), v)).collect();
+    let json = serde_json::to_string(&stringed).map_err(|e| e.to_string())?;
+    crate::db::settings::set(db, POMO_STATES_KEY, &json).map_err(|e| e.to_string())
+}
+
+/// Save the current pomodoro block so it can resume later. No-op unless the
+/// snapshot is a non-Idle Pomodoro session.
+fn suspend_pomo(db: &rusqlite::Connection, routine_id: i64, snap: &TimerSnapshot) -> Result<(), String> {
+    if snap.mode == Mode::Pomodoro && snap.state != TimerState::Idle {
+        let mut map = load_pomo_states(db);
+        map.insert(
+            routine_id,
+            ResumeState {
+                remaining_secs: snap.remaining_secs,
+                phase: snap.phase,
+                pomodoro_index: snap.pomodoro_index,
+            },
+        );
+        save_pomo_states(db, &map)?;
+    }
+    Ok(())
+}
+
+/// Drop any suspended state for a routine (after it resumes or is stopped).
+fn clear_pomo(db: &rusqlite::Connection, routine_id: i64) -> Result<(), String> {
+    let mut map = load_pomo_states(db);
+    if map.remove(&routine_id).is_some() {
+        save_pomo_states(db, &map)?;
+    }
+    Ok(())
+}
+
 // ── Timer config helper ────────────────────────────────────────────────────
 
 pub fn build_config(routine: &Routine, already_done: i64) -> TimerConfig {
@@ -116,6 +176,7 @@ pub fn build_config(routine: &Routine, already_done: i64) -> TimerConfig {
         break_secs: routine.break_minutes * 60,
         target_secs: routine.target_seconds,
         already_done_secs: already_done.min(routine.target_seconds),
+        resume: None,
     }
 }
 
@@ -129,8 +190,16 @@ pub fn timer_start(
 ) -> Result<TimerSnapshot, String> {
     let snap = {
         let mut s = state.lock().map_err(|e| e.to_string())?;
-        // Guard: stop and persist any in-progress session before starting a new one
-        if s.engine.state() != crate::core::timer::TimerState::Idle {
+        let cur = s.engine.snapshot();
+        // Early-return guard: target is already the current, still-active routine.
+        if cur.state != TimerState::Idle && cur.routine_id == Some(routine_id) {
+            return Ok(cur);
+        }
+        // Suspend a running pomodoro so it can resume later, then stop+persist.
+        if cur.state != TimerState::Idle {
+            if let Some(rid) = cur.routine_id {
+                suspend_pomo(&s.db, rid, &cur)?;
+            }
             if let Some(done) = s.engine.stop() {
                 crate::db::sessions::insert(&s.db, &done).map_err(|e| e.to_string())?;
             }
@@ -150,9 +219,17 @@ pub fn timer_start(
         if !routine.pomodoro_enabled && already_done >= routine.target_seconds {
             return Ok(s.engine.snapshot());
         }
-        let cfg = build_config(&routine, already_done);
+        // Resume a previously suspended pomodoro block, if one exists for this routine.
+        let resume = if routine.pomodoro_enabled {
+            load_pomo_states(&s.db).get(&routine_id).cloned()
+        } else {
+            None
+        };
+        let mut cfg = build_config(&routine, already_done);
+        cfg.resume = resume;
         s.engine.start(cfg);
         s.current_routine_name = Some(routine.name.clone());
+        clear_pomo(&s.db, routine_id)?;
         s.engine.snapshot()
     }; // guard dropped
     app.emit("timer://state", &snap).map_err(|e| e.to_string())?;
@@ -199,8 +276,14 @@ pub fn timer_stop(
 ) -> Result<(), String> {
     let snap = {
         let mut s = state.lock().map_err(|e| e.to_string())?;
+        // Capture the routine id BEFORE stop() resets it, so we can clear its
+        // suspended state — an explicit 세션 종료 means "start fresh next time".
+        let rid = s.engine.snapshot().routine_id;
         if let Some(done) = s.engine.stop() {
             crate::db::sessions::insert(&s.db, &done).map_err(|e| e.to_string())?;
+        }
+        if let Some(id) = rid {
+            clear_pomo(&s.db, id)?;
         }
         s.current_routine_name = None;
         s.engine.snapshot()
@@ -218,7 +301,11 @@ pub fn timer_switch(
 ) -> Result<TimerSnapshot, String> {
     let snap = {
         let mut s = state.lock().map_err(|e| e.to_string())?;
-        // Stop and persist current session if active
+        // Suspend a running pomodoro so it can resume later, then stop+persist.
+        let cur = s.engine.snapshot();
+        if let Some(rid) = cur.routine_id {
+            suspend_pomo(&s.db, rid, &cur)?;
+        }
         if let Some(done) = s.engine.stop() {
             crate::db::sessions::insert(&s.db, &done).map_err(|e| e.to_string())?;
         }
@@ -237,9 +324,17 @@ pub fn timer_switch(
         if !routine.pomodoro_enabled && already_done >= routine.target_seconds {
             return Ok(s.engine.snapshot());
         }
-        let cfg = build_config(&routine, already_done);
+        // Resume a previously suspended pomodoro block, if one exists for this routine.
+        let resume = if routine.pomodoro_enabled {
+            load_pomo_states(&s.db).get(&routine_id).cloned()
+        } else {
+            None
+        };
+        let mut cfg = build_config(&routine, already_done);
+        cfg.resume = resume;
         s.engine.start(cfg);
         s.current_routine_name = Some(routine.name.clone());
+        clear_pomo(&s.db, routine_id)?;
         s.engine.snapshot()
     }; // guard dropped
     app.emit("routines://changed", ()).map_err(|e| e.to_string())?;
