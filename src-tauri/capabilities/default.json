@@ -1,9 +1,26 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Capability for the main window",
-  "windows": ["main"],
+  "description": "Daily Routine Timer default capability",
+  "windows": ["main", "popover"],
   "permissions": [
-    "core:default"
+    "core:default",
+    "core:window:allow-show",
+    "core:window:allow-hide",
+    "core:window:allow-close",
+    "core:window:allow-set-focus",
+    "core:window:allow-set-title",
+    "core:window:allow-set-always-on-top",
+    "core:window:allow-set-skip-taskbar",
+    "core:window:allow-start-dragging",
+    "core:event:allow-listen",
+    "core:event:allow-emit",
+    "core:app:allow-set-app-theme",
+    "core:tray:allow-set-title",
+    "core:tray:allow-set-icon",
+    "core:tray:allow-set-visible",
+    "core:menu:default",
+    "notification:default",
+    "positioner:default"
   ]
 }

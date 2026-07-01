@@ -15,6 +15,21 @@ use crate::state::AppState;
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_notification::init())
+        .on_window_event(|window, event| {
+            match window.label() {
+                "main" => {
+                    if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                        api.prevent_close();
+                        let _ = window.hide();
+                    }
+                }
+                "popover" => {
+                    if let tauri::WindowEvent::Focused(false) = event { let _ = window.hide(); }
+                }
+                _ => {}
+            }
+        })
         .setup(|app| {
             let dir = app.path().app_data_dir().expect("no app data dir");
             std::fs::create_dir_all(&dir).ok();
