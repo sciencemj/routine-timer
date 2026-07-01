@@ -17,8 +17,32 @@
   let pomodoroEnabled = $state(true);
   let focusMinutes = $state(25);
   let breakMinutes = $state(5);
+  // Manual duration entry (hours + minutes), kept in sync with targetSeconds
+  let manualH = $state(1);
+  let manualM = $state(0);
 
-  const emojis = ['🎯', '📚', '✍️', '🏃', '🧘', '🌐'];
+  const emojis = [
+    '🎯','📚','✍️','🏃','🧘','🌐','💻','🎨',
+    '🎵','🍳','💪','🧠','📝','☕','🌱','🎮',
+    '📖','🚴','🎸','⚽','🏊','🛏️','💊','📷',
+    '💰','🗣️','🐶','🧹',
+  ];
+
+  function syncManual(secs: number) {
+    manualH = Math.floor(secs / 3600);
+    manualM = Math.floor((secs % 3600) / 60);
+  }
+  function setTarget(secs: number) {
+    targetSeconds = secs;
+    syncManual(secs);
+  }
+  function applyManual() {
+    const h = Math.min(23, Math.max(0, Math.floor(manualH) || 0));
+    const m = Math.min(59, Math.max(0, Math.floor(manualM) || 0));
+    manualH = h;
+    manualM = m;
+    targetSeconds = Math.max(60, h * 3600 + m * 60);
+  }
 
   const chips: { label: string; secs: number }[] = [
     { label: '30분',      secs: 1800 },
@@ -31,7 +55,7 @@
   function resetForm() {
     name = '';
     selectedEmoji = '🎯';
-    targetSeconds = 3600;
+    setTarget(3600);
     pomodoroEnabled = true;
     focusMinutes = 25;
     breakMinutes = 5;
@@ -40,7 +64,7 @@
   function prefillFromRoutine(r: Routine) {
     name = r.name;
     selectedEmoji = r.icon;
-    targetSeconds = r.target_seconds;
+    setTarget(r.target_seconds);
     pomodoroEnabled = r.pomodoro_enabled;
     focusMinutes = r.focus_minutes;
     breakMinutes = r.break_minutes;
@@ -89,10 +113,8 @@
 
 {#if open}
   <div class="overlay" role="dialog" aria-modal="true" aria-label={editRoutine ? '루틴 편집' : '새 루틴'}>
-    <div class="modal-header">
-      <button class="close-btn" onclick={onclose}>취소</button>
-      <h2 class="modal-title">{editRoutine ? '루틴 편집' : '새 루틴'}</h2>
-      <div class="header-spacer"></div>
+    <div class="modal-header" data-tauri-drag-region>
+      <h2 class="modal-title" data-tauri-drag-region>{editRoutine ? '루틴 편집' : '새 루틴'}</h2>
     </div>
 
     <div class="modal-body">
@@ -133,9 +155,32 @@
             <button
               class="chip"
               class:selected={targetSeconds === chip.secs}
-              onclick={() => { targetSeconds = chip.secs; }}
+              onclick={() => setTarget(chip.secs)}
             >{chip.label}</button>
           {/each}
+        </div>
+        <div class="manual-row">
+          <span class="manual-label">직접 입력</span>
+          <input
+            class="manual-input"
+            type="number"
+            min="0"
+            max="23"
+            bind:value={manualH}
+            oninput={applyManual}
+            aria-label="시간"
+          />
+          <span class="manual-unit">시간</span>
+          <input
+            class="manual-input"
+            type="number"
+            min="0"
+            max="59"
+            bind:value={manualM}
+            oninput={applyManual}
+            aria-label="분"
+          />
+          <span class="manual-unit">분</span>
         </div>
       </div>
 
@@ -186,18 +231,6 @@
     padding: 16px 20px;
     border-bottom: 1px solid var(--hair);
   }
-  .close-btn {
-    background: none;
-    border: none;
-    color: var(--accent);
-    font-size: 14px;
-    font-weight: 500;
-    cursor: pointer;
-    padding: 0;
-    font-family: var(--font-ui);
-    min-width: 40px;
-    text-align: left;
-  }
   .modal-title {
     flex: 1;
     text-align: center;
@@ -205,9 +238,6 @@
     font-weight: 600;
     color: var(--ink);
     margin: 0;
-  }
-  .header-spacer {
-    min-width: 40px;
   }
   .modal-body {
     flex: 1;
@@ -246,17 +276,19 @@
   }
   .emoji-grid {
     display: grid;
-    grid-template-columns: repeat(6, 1fr);
+    grid-template-columns: repeat(auto-fill, 46px);
     gap: 8px;
+    justify-content: start;
   }
   .emoji-btn {
-    aspect-ratio: 1;
+    width: 46px;
+    height: 46px;
     display: flex;
     align-items: center;
     justify-content: center;
     font-size: 22px;
     border: 2px solid transparent;
-    border-radius: 12px;
+    border-radius: 10px;
     background: var(--today-card);
     cursor: pointer;
     transition: background 150ms;
@@ -294,6 +326,36 @@
     color: var(--accent);
     border-color: transparent;
     font-weight: 600;
+  }
+  .manual-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 4px;
+  }
+  .manual-label {
+    font-size: 13px;
+    color: var(--muted);
+    margin-right: 4px;
+  }
+  .manual-input {
+    width: 56px;
+    background: var(--today-card);
+    border: 1px solid var(--border);
+    border-radius: 9px;
+    padding: 8px 10px;
+    font-size: 14px;
+    color: var(--ink);
+    font-family: var(--font-ui);
+    outline: none;
+    text-align: center;
+  }
+  .manual-input:focus {
+    border-color: var(--accent);
+  }
+  .manual-unit {
+    font-size: 13px;
+    color: var(--muted);
   }
   .toggle-row {
     display: flex;
