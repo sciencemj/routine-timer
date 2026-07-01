@@ -1,4 +1,5 @@
 pub mod routines;
+pub mod sessions;
 
 use rusqlite::Connection;
 
