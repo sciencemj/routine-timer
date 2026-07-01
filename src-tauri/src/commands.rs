@@ -9,6 +9,41 @@ use crate::core::timer::{ResumeState, TimerConfig, TimerSnapshot, TimerState};
 use crate::core::stats;
 use crate::state::AppState;
 
+// ── Day-boundary helpers ────────────────────────────────────────────────────
+//
+// The "day" for stats-bucketing purposes doesn't have to start at midnight —
+// users can push it later (e.g. 8 AM) so late-night focus sessions still
+// count toward the PREVIOUS day. We implement this without touching
+// core::stats at all: shifting the day start to hour H is equivalent to
+// bucketing with a FixedOffset that is H hours EARLIER than the real local
+// offset (so `date_naive()` doesn't roll over until H:00 local time).
+
+const DEFAULT_DAY_START_HOUR: i64 = 8;
+
+/// Pure helper: shift a real local UTC offset (in seconds) earlier by
+/// `day_start_hour` hours, returning the FixedOffset to use for day-bucketing.
+/// Never panics — falls back to UTC if the shifted offset is out of range.
+pub fn shifted_offset(real_local_secs: i32, day_start_hour: i64) -> FixedOffset {
+    let shifted = real_local_secs - (day_start_hour as i32) * 3600;
+    FixedOffset::east_opt(shifted).unwrap_or_else(|| FixedOffset::east_opt(0).unwrap())
+}
+
+/// Reads the configured day-start hour (default `DEFAULT_DAY_START_HOUR`,
+/// clamped to 0..=23) and returns today's date plus the shifted offset to use
+/// for all stats bucketing.
+fn day_context(db: &rusqlite::Connection) -> (NaiveDate, FixedOffset) {
+    let h: i64 = crate::db::settings::get(db, "day_start_hour")
+        .ok()
+        .flatten()
+        .and_then(|s| s.parse::<i64>().ok())
+        .unwrap_or(DEFAULT_DAY_START_HOUR)
+        .clamp(0, 23);
+    let real = *chrono::Local::now().offset();
+    let tz = shifted_offset(real.local_minus_utc(), h);
+    let today = stats::day_of(chrono::Utc::now(), tz);
+    (today, tz)
+}
+
 // ── Stats types ────────────────────────────────────────────────────────────
 
 #[derive(Serialize)]
@@ -307,10 +342,9 @@ pub fn timer_start(
             .map_err(|e| e.to_string())?
             .ok_or_else(|| format!("routine {} not found", routine_id))?;
         // Recompute already_done AFTER the stop+insert so fresh seconds are included
-        let tz = *chrono::Local::now().offset();
-        let day = crate::core::stats::day_of(chrono::Utc::now(), tz);
+        let (today, tz) = day_context(&s.db);
         let sessions = crate::db::sessions::all(&s.db).map_err(|e| e.to_string())?;
-        let already_done = crate::core::stats::seconds_per_routine(&sessions, day, tz)
+        let already_done = crate::core::stats::seconds_per_routine(&sessions, today, tz)
             .get(&routine_id)
             .copied()
             .unwrap_or(0);
@@ -412,10 +446,9 @@ pub fn timer_switch(
         let routine = crate::db::routines::get(&s.db, routine_id)
             .map_err(|e| e.to_string())?
             .ok_or_else(|| format!("routine {} not found", routine_id))?;
-        let tz = *chrono::Local::now().offset();
-        let day = crate::core::stats::day_of(chrono::Utc::now(), tz);
+        let (today, tz) = day_context(&s.db);
         let sessions = crate::db::sessions::all(&s.db).map_err(|e| e.to_string())?;
-        let already_done = crate::core::stats::seconds_per_routine(&sessions, day, tz)
+        let already_done = crate::core::stats::seconds_per_routine(&sessions, today, tz)
             .get(&routine_id)
             .copied()
             .unwrap_or(0);
@@ -460,8 +493,7 @@ pub fn stats_today(state: State<'_, Mutex<AppState>>) -> Result<TodayStats, Stri
         "all_completed" => StreakRule::AllCompleted,
         _ => StreakRule::Focused,
     };
-    let tz = *chrono::Local::now().offset();
-    let today = stats::day_of(chrono::Utc::now(), tz);
+    let (today, tz) = day_context(&s.db);
     Ok(today_stats(&routines, &sessions, rule, today, tz))
 }
 
@@ -476,8 +508,7 @@ pub fn stats_report(state: State<'_, Mutex<AppState>>) -> Result<ReportData, Str
         "all_completed" => StreakRule::AllCompleted,
         _ => StreakRule::Focused,
     };
-    let tz = *chrono::Local::now().offset();
-    let today = stats::day_of(chrono::Utc::now(), tz);
+    let (today, tz) = day_context(&s.db);
     Ok(build_report(&sessions, &routines, rule, today, tz))
 }
 
@@ -487,6 +518,10 @@ pub fn settings_get(state: State<'_, Mutex<AppState>>) -> Result<HashMap<String,
     let mut map = HashMap::new();
     map.insert("theme".to_string(), crate::db::settings::theme(&s.db).map_err(|e| e.to_string())?);
     map.insert("streak_rule".to_string(), crate::db::settings::streak_rule(&s.db).map_err(|e| e.to_string())?);
+    let day_start_hour = crate::db::settings::get(&s.db, "day_start_hour")
+        .map_err(|e| e.to_string())?
+        .unwrap_or_else(|| DEFAULT_DAY_START_HOUR.to_string());
+    map.insert("day_start_hour".to_string(), day_start_hour);
     Ok(map)
 }
 
@@ -510,6 +545,12 @@ pub fn settings_set(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn shifted_offset_shifts_day_start_hour_earlier() {
+        assert_eq!(shifted_offset(9 * 3600, 8).local_minus_utc(), 1 * 3600);
+        assert_eq!(shifted_offset(0, 8).local_minus_utc(), -8 * 3600);
+        assert_eq!(shifted_offset(-8 * 3600, 8).local_minus_utc(), -16 * 3600);
+    }
     #[test]
     fn build_config_maps_mode_and_seconds() {
         let r = Routine { id: 3, name: "x".into(), icon: "x".into(), color: None, target_seconds: 3600,

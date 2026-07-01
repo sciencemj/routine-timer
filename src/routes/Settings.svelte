@@ -5,6 +5,8 @@
 
   // Streak-rule preference state (seeded from settingsGet on mount)
   let streakRule = $state<StreakRule>('focused');
+  // Day-start-hour preference state (seeded from settingsGet on mount)
+  let dayStartHour = $state('8');
 
   const themeOptions: { value: ThemePref; label: string }[] = [
     { value: 'system', label: '시스템' },
@@ -18,12 +20,19 @@
     { value: 'all_completed', label: '모든 루틴 완성' },
   ];
 
-  // On mount: init theme, and seed current streak_rule
+  const dayStartHourOptions: { value: string; label: string }[] = Array.from(
+    { length: 24 },
+    (_, h) => ({ value: String(h), label: `${h}시` })
+  );
+
+  // On mount: init theme, and seed current streak_rule + day_start_hour
   $effect(() => {
     let alive = true;
     themeStore.init();
     commands.settingsGet().then((s) => {
-      if (alive) streakRule = (s['streak_rule'] as StreakRule) ?? 'focused';
+      if (!alive) return;
+      streakRule = (s['streak_rule'] as StreakRule) ?? 'focused';
+      dayStartHour = s['day_start_hour'] ?? '8';
     });
     return () => { alive = false; };
   });
@@ -31,6 +40,11 @@
   async function selectStreakRule(rule: StreakRule) {
     streakRule = rule;
     await commands.settingsSet('streak_rule', rule);
+  }
+
+  async function selectDayStartHour(value: string) {
+    dayStartHour = value;
+    await commands.settingsSet('day_start_hour', value);
   }
 </script>
 
@@ -66,6 +80,21 @@
           >{opt.label}</button>
         {/each}
       </div>
+    </section>
+
+    <!-- 하루 시작 시각 -->
+    <section class="card">
+      <p class="section-label">하루 시작 시각</p>
+      <select
+        class="hour-select"
+        value={dayStartHour}
+        onchange={(e) => selectDayStartHour(e.currentTarget.value)}
+      >
+        {#each dayStartHourOptions as opt (opt.value)}
+          <option value={opt.value}>{opt.label}</option>
+        {/each}
+      </select>
+      <p class="setting-caption">이 시각을 기준으로 하루가 바뀝니다 (자정~이 시각의 집중은 전날로 집계)</p>
     </section>
   </div>
 </div>
@@ -138,5 +167,24 @@
     background: var(--card);
     color: var(--ink);
     box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1), 0 0 0 0.5px rgba(0, 0, 0, 0.06);
+  }
+
+  /* Day-start-hour select */
+  .hour-select {
+    width: 100%;
+    background: var(--track);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    color: var(--ink);
+    font-family: var(--font-ui);
+    font-weight: 600;
+    font-size: 13px;
+    padding: 8px 10px;
+    cursor: pointer;
+  }
+  .setting-caption {
+    margin: 0;
+    font-size: 12px;
+    color: var(--faint);
   }
 </style>
