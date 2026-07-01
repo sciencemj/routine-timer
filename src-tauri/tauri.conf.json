@@ -12,7 +12,7 @@
   "app": {
     "macOSPrivateApi": true,
     "windows": [
-      { "label": "main", "url": "index.html#/", "title": "Routine Timer", "width": 900, "height": 880, "minWidth": 680, "minHeight": 760 }
+      { "label": "main", "url": "index.html#/", "title": "Routine Timer", "titleBarStyle": "Overlay", "hiddenTitle": true, "width": 900, "height": 880, "minWidth": 680, "minHeight": 760 }
     ],
     "security": { "csp": null }
   },

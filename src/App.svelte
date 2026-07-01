@@ -38,7 +38,7 @@
 
 {#if isMain}
   <div class="app-shell">
-    <div class="top-bar">
+    <div class="top-bar" data-tauri-drag-region>
       <div class="tab-pill">
         {#each tabs as tab}
           <button
@@ -68,6 +68,9 @@
 
   .top-bar {
     height: 44px;
+    /* leave room on the left for the macOS traffic-light buttons (Overlay title bar
+       lets them float over this bar so the dots sit on the same row as the tabs) */
+    padding: 0 84px;
     background: var(--chrome);
     border-bottom: 1px solid var(--hair);
     display: flex;
