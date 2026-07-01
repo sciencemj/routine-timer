@@ -264,10 +264,7 @@
 
   /* Goal card */
   .goal-card {
-    background: var(--card);
-    border: 1px solid var(--border);
-    border-radius: var(--r-card);
-    padding: 20px;
+    padding: 4px 0;
     display: flex;
     align-items: center;
     gap: 20px;
