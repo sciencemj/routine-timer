@@ -5,6 +5,9 @@ pub mod state;
 
 use std::sync::Mutex;
 use tauri::Manager;
+use tauri::tray::{TrayIconBuilder, TrayIconEvent, MouseButton, MouseButtonState};
+use tauri::menu::{MenuBuilder, MenuItemBuilder};
+use tauri_plugin_positioner::{WindowExt, Position};
 use crate::core::clock::SystemClock;
 use crate::core::timer::TimerEngine;
 use crate::state::AppState;
@@ -23,6 +26,63 @@ pub fn run() {
                 current_routine_name: None,
             }));
             crate::state::spawn_tick(app.handle().clone());
+
+            app.handle().plugin(tauri_plugin_positioner::init())?;
+
+            let open_item = MenuItemBuilder::with_id("open", "대시보드 열기").build(app)?;
+            let pause_item = MenuItemBuilder::with_id("pause", "일시정지 / 계속").build(app)?;
+            let quit_item = MenuItemBuilder::with_id("quit", "종료").build(app)?;
+            let menu = MenuBuilder::new(app).items(&[&open_item, &pause_item, &quit_item]).build()?;
+
+            let _tray = TrayIconBuilder::with_id("main-tray")
+                .icon(app.default_window_icon().unwrap().clone())
+                .icon_as_template(true)
+                .title("--:--")
+                .menu(&menu)
+                .show_menu_on_left_click(false)
+                .on_menu_event(|app, event| match event.id().as_ref() {
+                    "open" => {
+                        if let Some(w) = app.get_webview_window("main") {
+                            let _ = w.show();
+                            let _ = w.set_focus();
+                        }
+                    }
+                    "pause" => {
+                        let state = app.state::<std::sync::Mutex<AppState>>();
+                        let mut s = state.lock().unwrap();
+                        match s.engine.state() {
+                            crate::core::timer::TimerState::Paused => s.engine.resume(),
+                            crate::core::timer::TimerState::Idle => {}
+                            _ => s.engine.pause(),
+                        }
+                    }
+                    "quit" => {
+                        app.exit(0);
+                    }
+                    _ => {}
+                })
+                .on_tray_icon_event(|tray, event| {
+                    tauri_plugin_positioner::on_tray_event(tray.app_handle(), &event);
+                    if let TrayIconEvent::Click {
+                        button: MouseButton::Left,
+                        button_state: MouseButtonState::Up,
+                        ..
+                    } = event
+                    {
+                        let app = tray.app_handle();
+                        if let Some(win) = app.get_webview_window("popover") {
+                            if win.is_visible().unwrap_or(false) {
+                                let _ = win.hide();
+                            } else {
+                                let _ = win.move_window(Position::TrayBottomCenter);
+                                let _ = win.show();
+                                let _ = win.set_focus();
+                            }
+                        }
+                    }
+                })
+                .build(app)?;
+
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
