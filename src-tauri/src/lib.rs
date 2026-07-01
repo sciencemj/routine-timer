@@ -125,6 +125,7 @@ pub fn run() {
             commands::timer_switch,
             commands::timer_get_state,
             commands::stats_today,
+            commands::stats_report,
             commands::settings_get,
             commands::settings_set,
         ])

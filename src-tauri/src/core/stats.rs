@@ -149,6 +149,51 @@ pub fn remaining_total(
         .sum()
 }
 
+/// Summed focus seconds for EVERY local day in the inclusive range `from..=to`
+/// (oldest -> newest), yielding 0 for days with no sessions. The loop is capped
+/// defensively so a pathological range can never spin forever.
+pub fn range_day_totals(
+    sessions: &[FocusSession],
+    from: NaiveDate,
+    to: NaiveDate,
+    tz: FixedOffset,
+) -> Vec<(NaiveDate, i64)> {
+    // Bucket every session's seconds onto its local day once.
+    let mut by_day: HashMap<NaiveDate, i64> = HashMap::new();
+    for s in sessions {
+        *by_day.entry(day_of(s.started_at, tz)).or_insert(0) += s.seconds;
+    }
+    let mut out = Vec::new();
+    let mut day = from;
+    for _ in 0..3650 {
+        out.push((day, by_day.get(&day).copied().unwrap_or(0)));
+        if day >= to {
+            break;
+        }
+        match day.succ_opt() {
+            Some(next) => day = next,
+            None => break,
+        }
+    }
+    out
+}
+
+/// GitHub-style heat bucket for a day's focus seconds.
+/// 0: none, 1: <30m, 2: <1h, 3: <2h, 4: >=2h.
+pub fn heat_level(secs: i64) -> u8 {
+    if secs <= 0 {
+        0
+    } else if secs < 1800 {
+        1
+    } else if secs < 3600 {
+        2
+    } else if secs < 7200 {
+        3
+    } else {
+        4
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -235,6 +280,37 @@ mod tests {
         let routines = vec![routine(1, 50), routine(2, 4000)];
         assert_eq!(streak(&routines, &sessions, StreakRule::AllCompleted, today, utc), 0);
         assert_eq!(streak(&routines, &sessions, StreakRule::AnyCompleted, today, utc), 1);
+    }
+
+    #[test]
+    fn range_day_totals_covers_every_day_including_zero() {
+        let utc = utc();
+        let base = 1_700_000_000;
+        let d0 = day_of(Utc.timestamp_opt(base, 0).unwrap(), utc);
+        // day0 has two sessions (500 total), day1 none, day2 has 400.
+        let sessions = vec![
+            sess(1, base, 300),
+            sess(1, base + 100, 200),
+            sess(2, base + 2 * 86_400, 400),
+        ];
+        let from = d0;
+        let to = d0.succ_opt().unwrap().succ_opt().unwrap(); // d0 + 2
+        let totals = range_day_totals(&sessions, from, to, utc);
+        assert_eq!(totals.len(), 3);
+        assert_eq!(totals[0], (from, 500));
+        assert_eq!(totals[1].1, 0); // gap day
+        assert_eq!(totals[2].1, 400);
+    }
+
+    #[test]
+    fn heat_level_boundaries() {
+        assert_eq!(heat_level(0), 0);
+        assert_eq!(heat_level(1799), 1);
+        assert_eq!(heat_level(1800), 2);
+        assert_eq!(heat_level(3599), 2);
+        assert_eq!(heat_level(3600), 3);
+        assert_eq!(heat_level(7199), 3);
+        assert_eq!(heat_level(7200), 4);
     }
 
     #[test]

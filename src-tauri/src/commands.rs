@@ -40,6 +40,105 @@ pub fn today_stats(
     }
 }
 
+// ── Report types ───────────────────────────────────────────────────────────
+
+#[derive(Serialize)]
+pub struct HeatCell {
+    pub date: String, // "YYYY-MM-DD"
+    pub secs: i64,
+    pub level: u8,
+}
+
+#[derive(Serialize)]
+pub struct ReportData {
+    pub heatmap: Vec<HeatCell>, // Sunday-of-13-weeks-ago ..= today, oldest -> newest
+    pub this_week_secs: i64,    // this week's Sunday ..= today
+    pub last_week_secs: i64,    // previous full week Sun..Sat
+    pub daily_avg_secs: i64,    // total over ACTIVE days in the heatmap range / active-day count
+    pub month_active_days: i64, // days with >0 focus in the current calendar month (up to today)
+    pub streak: u32,
+    pub best_streak: u32,
+    pub last7: Vec<i64>, // secs for [today-6 ..= today], oldest -> newest
+}
+
+/// Pure builder for the Report screen: a ~13-week focus heatmap plus weekly /
+/// average KPIs and a 7-day series. Unit-testable without Tauri.
+pub fn build_report(
+    sessions: &[FocusSession],
+    routines: &[Routine],
+    rule: StreakRule,
+    today: NaiveDate,
+    tz: FixedOffset,
+) -> ReportData {
+    use chrono::Datelike;
+
+    // 0 = Sunday .. 6 = Saturday
+    let weekday = today.weekday().num_days_from_sunday() as i64;
+    let week_start = today - chrono::Duration::days(weekday); // this week's Sunday
+    let heat_start = week_start - chrono::Duration::days(12 * 7); // Sunday 13 weeks ago
+
+    let totals = stats::range_day_totals(sessions, heat_start, today, tz);
+
+    let heatmap: Vec<HeatCell> = totals
+        .iter()
+        .map(|&(d, secs)| HeatCell {
+            date: d.format("%Y-%m-%d").to_string(),
+            secs,
+            level: stats::heat_level(secs),
+        })
+        .collect();
+
+    let sum_in = |lo: NaiveDate, hi: NaiveDate| -> i64 {
+        totals
+            .iter()
+            .filter(|&&(d, _)| d >= lo && d <= hi)
+            .map(|&(_, s)| s)
+            .sum()
+    };
+
+    let this_week_secs = sum_in(week_start, today);
+    let last_week_start = week_start - chrono::Duration::days(7);
+    let last_week_end = week_start - chrono::Duration::days(1);
+    let last_week_secs = sum_in(last_week_start, last_week_end);
+
+    // Daily average over ACTIVE (>0) days in the heatmap range.
+    let active: Vec<i64> = totals.iter().map(|&(_, s)| s).filter(|&s| s > 0).collect();
+    let daily_avg_secs = if active.is_empty() {
+        0
+    } else {
+        active.iter().sum::<i64>() / active.len() as i64
+    };
+
+    // Active days in the current calendar month, up to today. `month_start` is
+    // always within the heatmap range (a month is far shorter than 13 weeks).
+    let month_start = NaiveDate::from_ymd_opt(today.year(), today.month(), 1).unwrap_or(today);
+    let month_active_days = totals
+        .iter()
+        .filter(|&&(d, secs)| secs > 0 && d >= month_start && d <= today)
+        .count() as i64;
+
+    let streak = stats::streak(routines, sessions, rule, today, tz);
+    let best_streak = stats::max_streak(routines, sessions, rule, today, tz);
+
+    let last7_start = today - chrono::Duration::days(6);
+    let last7: Vec<i64> = totals
+        .iter()
+        .filter(|&&(d, _)| d >= last7_start && d <= today)
+        .map(|&(_, s)| s)
+        .collect();
+
+    ReportData {
+        heatmap,
+        this_week_secs,
+        last_week_secs,
+        daily_avg_secs,
+        month_active_days,
+        streak,
+        best_streak,
+        last7,
+    }
+}
+
 // ── Routine commands ───────────────────────────────────────────────────────
 
 #[tauri::command]
@@ -367,6 +466,22 @@ pub fn stats_today(state: State<'_, Mutex<AppState>>) -> Result<TodayStats, Stri
 }
 
 #[tauri::command]
+pub fn stats_report(state: State<'_, Mutex<AppState>>) -> Result<ReportData, String> {
+    let s = state.lock().map_err(|e| e.to_string())?;
+    let routines = crate::db::routines::list(&s.db).map_err(|e| e.to_string())?;
+    let sessions = crate::db::sessions::all(&s.db).map_err(|e| e.to_string())?;
+    let rule_str = crate::db::settings::streak_rule(&s.db).map_err(|e| e.to_string())?;
+    let rule = match rule_str.as_str() {
+        "any_completed" => StreakRule::AnyCompleted,
+        "all_completed" => StreakRule::AllCompleted,
+        _ => StreakRule::Focused,
+    };
+    let tz = *chrono::Local::now().offset();
+    let today = stats::day_of(chrono::Utc::now(), tz);
+    Ok(build_report(&sessions, &routines, rule, today, tz))
+}
+
+#[tauri::command]
 pub fn settings_get(state: State<'_, Mutex<AppState>>) -> Result<HashMap<String, String>, String> {
     let s = state.lock().map_err(|e| e.to_string())?;
     let mut map = HashMap::new();
@@ -408,7 +523,7 @@ mod tests {
 
 #[cfg(test)]
 mod stats_tests {
-    use super::today_stats;
+    use super::{build_report, today_stats};
     use crate::core::model::*;
     use chrono::{Utc, TimeZone, FixedOffset};
     fn utc() -> FixedOffset { FixedOffset::east_opt(0).unwrap() }
@@ -434,5 +549,37 @@ mod stats_tests {
         assert_eq!(st.streak, 1);
         assert_eq!(st.best_streak, 1);
         assert_eq!(st.per_routine.get(&1), Some(&800));
+    }
+
+    #[test]
+    fn report_shapes_and_totals() {
+        // base = 1_700_000_000 == 2023-11-14 (Tuesday) in UTC.
+        let base = 1_700_000_000;
+        let today = crate::core::stats::day_of(Utc.timestamp_opt(base, 0).unwrap(), utc());
+        // today (Tue) 800s, yesterday (Mon, same week) 300s, 10 days ago 600s.
+        let sessions = vec![
+            sess(1, base, 800),
+            sess(1, base - 86_400, 300),
+            sess(1, base - 10 * 86_400, 600),
+        ];
+        let routines = vec![routine(1, 800)];
+        let r = build_report(&sessions, &routines, StreakRule::Focused, today, utc());
+
+        // last7: 7 values, oldest -> newest, last is today.
+        assert_eq!(r.last7.len(), 7);
+        assert_eq!(*r.last7.last().unwrap(), 800);
+
+        // heatmap non-empty and ends on today.
+        assert!(!r.heatmap.is_empty());
+        assert_eq!(
+            r.heatmap.last().unwrap().date,
+            today.format("%Y-%m-%d").to_string()
+        );
+
+        // this week (Sun..=Tue) = today + yesterday = 1100.
+        assert_eq!(r.this_week_secs, 1100);
+
+        // daily avg over 3 active days (800 + 300 + 600) / 3.
+        assert_eq!(r.daily_avg_secs, (800 + 300 + 600) / 3);
     }
 }

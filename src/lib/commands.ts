@@ -1,5 +1,5 @@
 import { invoke } from '@tauri-apps/api/core';
-import type { Routine, NewRoutine, TimerSnapshot, TodayStats } from './types';
+import type { Routine, NewRoutine, TimerSnapshot, TodayStats, ReportData } from './types';
 
 export const commands = {
   routinesList: () => invoke<Routine[]>('routines_list'),
@@ -15,6 +15,7 @@ export const commands = {
   timerSwitch: (routineId: number) => invoke<TimerSnapshot>('timer_switch', { routineId }),
   timerGetState: () => invoke<TimerSnapshot>('timer_get_state'),
   statsToday: () => invoke<TodayStats>('stats_today'),
+  statsReport: () => invoke<ReportData>('stats_report'),
   settingsGet: () => invoke<Record<string, string>>('settings_get'),
   settingsSet: (key: string, value: string) => invoke<void>('settings_set', { key, value }),
 };

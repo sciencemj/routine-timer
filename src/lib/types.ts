@@ -27,3 +27,14 @@ export interface TodayStats {
   total_secs: number; completed: number; routine_count: number;
   remaining_secs: number; streak: number; best_streak: number; per_routine: Record<number, number>;
 }
+export interface HeatCell { date: string; secs: number; level: number }
+export interface ReportData {
+  heatmap: HeatCell[];
+  this_week_secs: number;
+  last_week_secs: number;
+  daily_avg_secs: number;
+  month_active_days: number;
+  streak: number;
+  best_streak: number;
+  last7: number[];
+}
