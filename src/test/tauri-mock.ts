@@ -4,7 +4,7 @@ import { vi } from 'vitest';
 // name starts with `mock`. Hold shared mock state in a `mocks` object via vi.hoisted().
 const mocks = vi.hoisted(() => ({
   handlers: new Map<string, (e: unknown) => void>(),
-  invoke: vi.fn(() => Promise.resolve()),
+  invoke: vi.fn((_cmd: string, ..._args: unknown[]): Promise<unknown> => Promise.resolve()),
 }));
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke: mocks.invoke }));
