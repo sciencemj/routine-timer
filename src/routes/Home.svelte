@@ -4,6 +4,7 @@
   import { routinesStore, initRoutinesListeners } from '$lib/routines.svelte';
   import { formatDurationKo } from '$lib/time';
   import { commands } from '$lib/commands';
+  import type { Routine } from '$lib/types';
   import RoutineRow from '$lib/components/RoutineRow.svelte';
   import NewRoutineModal from '$lib/components/NewRoutineModal.svelte';
 
@@ -31,6 +32,10 @@
 
   // Modal state
   let showNew = $state(false);
+  let editRoutine = $state<Routine | null>(null);
+
+  // Edit-mode toggle for the routine list
+  let editing = $state(false);
 
   // On mount: load routines + subscribe to change events
   $effect(() => {
@@ -44,6 +49,42 @@
   async function start(id: number) {
     await commands.timerStart(id);
     push('/focus');
+  }
+
+  function openCreate() {
+    editRoutine = null;
+    showNew = true;
+  }
+
+  function openEdit(routine: Routine) {
+    editRoutine = routine;
+    showNew = true;
+  }
+
+  function closeModal() {
+    showNew = false;
+    editRoutine = null;
+  }
+
+  async function deleteRoutine(id: number) {
+    await commands.routineDelete(id);
+    await routinesStore.refresh();
+  }
+
+  async function moveUp(index: number) {
+    if (index <= 0) return;
+    const newList = [...routinesStore.list];
+    [newList[index - 1], newList[index]] = [newList[index], newList[index - 1]];
+    await commands.routineReorder(newList.map((r) => r.id));
+    await routinesStore.refresh();
+  }
+
+  async function moveDown(index: number) {
+    if (index >= routinesStore.list.length - 1) return;
+    const newList = [...routinesStore.list];
+    [newList[index], newList[index + 1]] = [newList[index + 1], newList[index]];
+    await commands.routineReorder(newList.map((r) => r.id));
+    await routinesStore.refresh();
   }
 </script>
 
@@ -112,19 +153,29 @@
     <div class="routines-section">
       <div class="section-header">
         <h2 class="section-title">오늘의 루틴</h2>
-        <button class="new-pill" onclick={() => { showNew = true; }}>+ 새 루틴</button>
+        <div class="header-actions">
+          <button class="edit-pill" onclick={() => { editing = !editing; }}>{editing ? '완료' : '수정'}</button>
+          <button class="new-pill" onclick={openCreate}>+ 새 루틴</button>
+        </div>
       </div>
 
       <div class="routine-list">
         {#if routinesStore.list.length === 0}
           <p class="empty-state">아직 루틴이 없어요 — 새 루틴을 추가하세요</p>
         {:else}
-          {#each routinesStore.list as routine (routine.id)}
+          {#each routinesStore.list as routine, i (routine.id)}
             <RoutineRow
               {routine}
               todaySecs={routinesStore.secondsFor(routine.id)}
               active={timer.routineId === routine.id && timer.isActive}
               onclick={() => start(routine.id)}
+              {editing}
+              onEdit={() => openEdit(routine)}
+              onDelete={() => deleteRoutine(routine.id)}
+              onMoveUp={() => moveUp(i)}
+              onMoveDown={() => moveDown(i)}
+              canMoveUp={i > 0}
+              canMoveDown={i < routinesStore.list.length - 1}
             />
           {/each}
         {/if}
@@ -133,7 +184,7 @@
   </div>
 </div>
 
-<NewRoutineModal open={showNew} onclose={() => { showNew = false; }} />
+<NewRoutineModal open={showNew} editRoutine={editRoutine} onclose={closeModal} />
 
 <style>
   .home {
@@ -255,6 +306,11 @@
     font-weight: 600;
     color: var(--ink);
   }
+  .header-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
   .new-pill {
     padding: 5px 14px;
     background: var(--accent-bg);
@@ -268,6 +324,21 @@
     transition: opacity 150ms;
   }
   .new-pill:hover {
+    opacity: 0.8;
+  }
+  .edit-pill {
+    padding: 5px 14px;
+    background: var(--track);
+    color: var(--muted);
+    border: none;
+    border-radius: var(--r-pill);
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    font-family: var(--font-ui);
+    transition: opacity 150ms;
+  }
+  .edit-pill:hover {
     opacity: 0.8;
   }
   .routine-list {

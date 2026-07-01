@@ -2,18 +2,56 @@
   import type { Routine } from '../types';
   import { formatDurationKo } from '../time';
 
-  let { routine, todaySecs, active = false, onclick }: {
+  let {
+    routine,
+    todaySecs,
+    active = false,
+    onclick,
+    editing = false,
+    onEdit,
+    onDelete,
+    onMoveUp,
+    onMoveDown,
+    canMoveUp = false,
+    canMoveDown = false,
+  }: {
     routine: Routine;
     todaySecs: number;
     active?: boolean;
     onclick?: () => void;
+    editing?: boolean;
+    onEdit?: () => void;
+    onDelete?: () => void;
+    onMoveUp?: () => void;
+    onMoveDown?: () => void;
+    canMoveUp?: boolean;
+    canMoveDown?: boolean;
   } = $props();
 
   const progress = $derived(routine.target_seconds > 0 ? Math.min(1, todaySecs / routine.target_seconds) : 0);
   const completed = $derived(routine.target_seconds > 0 && todaySecs >= routine.target_seconds);
+
+  function handlePrimary() {
+    (editing ? onEdit : onclick)?.();
+  }
+
+  function handleKeydown(e: KeyboardEvent) {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      handlePrimary();
+    }
+  }
 </script>
 
-<button class="routine-row" class:active {onclick}>
+<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+<div
+  class="routine-row"
+  class:active
+  role="button"
+  tabindex="0"
+  onclick={handlePrimary}
+  onkeydown={handleKeydown}
+>
   <div class="icon-tile">{routine.icon}</div>
   <div class="row-main">
     <div class="row-top">
@@ -29,8 +67,33 @@
     </div>
     <span class="time-text mono">{formatDurationKo(todaySecs)} / {formatDurationKo(routine.target_seconds)}</span>
   </div>
-  <span class="chev" aria-hidden="true">›</span>
-</button>
+  {#if editing}
+    <div class="edit-controls">
+      <button
+        type="button"
+        class="icon-btn"
+        onclick={(e) => { e.stopPropagation(); onMoveUp?.(); }}
+        disabled={!canMoveUp}
+        aria-label="위로"
+      >↑</button>
+      <button
+        type="button"
+        class="icon-btn"
+        onclick={(e) => { e.stopPropagation(); onMoveDown?.(); }}
+        disabled={!canMoveDown}
+        aria-label="아래로"
+      >↓</button>
+      <button
+        type="button"
+        class="icon-btn danger"
+        onclick={(e) => { e.stopPropagation(); onDelete?.(); }}
+        aria-label="삭제"
+      >🗑</button>
+    </div>
+  {:else}
+    <span class="chev" aria-hidden="true">›</span>
+  {/if}
+</div>
 
 <style>
   .routine-row {
@@ -39,8 +102,8 @@
     gap: 12px;
     width: 100%;
     padding: 12px 14px;
-    background: var(--card);
-    border: 1px solid var(--border);
+    background: none;
+    border: 1px solid transparent;
     border-radius: var(--r-btn);
     cursor: pointer;
     text-align: left;
@@ -120,5 +183,33 @@
     font-size: 20px;
     color: var(--chev);
     line-height: 1;
+  }
+  .edit-controls {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-shrink: 0;
+  }
+  .icon-btn {
+    width: 26px;
+    height: 26px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid var(--border);
+    border-radius: var(--r-chip);
+    background: var(--today-card);
+    color: var(--ink);
+    font-size: 13px;
+    line-height: 1;
+    cursor: pointer;
+    padding: 0;
+  }
+  .icon-btn:disabled {
+    opacity: 0.35;
+    cursor: default;
+  }
+  .icon-btn.danger {
+    color: #e5484d;
   }
 </style>
