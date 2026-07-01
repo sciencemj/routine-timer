@@ -5,6 +5,7 @@ import { vi } from 'vitest';
 const mocks = vi.hoisted(() => ({
   handlers: new Map<string, (e: unknown) => void>(),
   invoke: vi.fn((_cmd: string, ..._args: unknown[]): Promise<unknown> => Promise.resolve()),
+  setTheme: vi.fn((_theme: string | null): Promise<void> => Promise.resolve()),
 }));
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke: mocks.invoke }));
@@ -19,14 +20,17 @@ vi.mock('@tauri-apps/api/window', () => ({
     label: 'main',
     theme: () => Promise.resolve('light'),
     onThemeChanged: () => Promise.resolve(() => {}),
-    setTheme: () => Promise.resolve(),
+    setTheme: mocks.setTheme,
   }),
 }));
 
 export const invokeMock = mocks.invoke;
+export const setThemeMock = mocks.setTheme;
 export function emitTauri(event: string, payload: unknown) { mocks.handlers.get(event)?.({ event, id: 0, payload }); }
 export function resetTauri() {
   mocks.handlers.clear();
   mocks.invoke.mockReset();
   mocks.invoke.mockImplementation(() => Promise.resolve());
+  mocks.setTheme.mockReset();
+  mocks.setTheme.mockImplementation(() => Promise.resolve());
 }

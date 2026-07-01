@@ -31,9 +31,7 @@ function createThemeStore() {
   async function setPref(p: ThemePref) {
     pref = p;
     await commands.settingsSet('theme', p);
-    if (p === 'light' || p === 'dark') {
-      await getCurrentWindow().setTheme(p);
-    }
+    await getCurrentWindow().setTheme(p === 'system' ? null : p);
     apply();
   }
 
