@@ -31,8 +31,8 @@ function createThemeStore() {
   async function setPref(p: ThemePref) {
     pref = p;
     await commands.settingsSet('theme', p);
-    await getCurrentWindow().setTheme(p === 'system' ? null : p);
-    apply();
+    apply();                                  // CSS theme first — always runs
+    try { await getCurrentWindow().setTheme(p === 'system' ? null : p); } catch { /* native theme is best-effort */ }
   }
 
   return {

@@ -146,6 +146,10 @@ pub fn timer_start(
             .get(&routine_id)
             .copied()
             .unwrap_or(0);
+        // routine already complete for today (continuous) — don't start a zero-length session
+        if !routine.pomodoro_enabled && already_done >= routine.target_seconds {
+            return Ok(s.engine.snapshot());
+        }
         let cfg = build_config(&routine, already_done);
         s.engine.start(cfg);
         s.current_routine_name = Some(routine.name.clone());
@@ -229,6 +233,10 @@ pub fn timer_switch(
             .get(&routine_id)
             .copied()
             .unwrap_or(0);
+        // routine already complete for today (continuous) — don't start a zero-length session
+        if !routine.pomodoro_enabled && already_done >= routine.target_seconds {
+            return Ok(s.engine.snapshot());
+        }
         let cfg = build_config(&routine, already_done);
         s.engine.start(cfg);
         s.current_routine_name = Some(routine.name.clone());
