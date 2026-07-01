@@ -37,8 +37,8 @@
   // Edit-mode toggle for the routine list
   let editing = $state(false);
 
-  // Drag-and-drop reorder state
-  let dragIndex = $state<number | null>(null);
+  // Pointer-based drag reorder state (HTML5 native DnD is unreliable in WKWebView)
+  let dragFrom = $state<number | null>(null);
   let overIndex = $state<number | null>(null);
 
   // On mount: load routines + subscribe to change events
@@ -51,6 +51,12 @@
   });
 
   async function start(id: number) {
+    // If this routine's session is already running/paused, just view it — do NOT
+    // restart (restarting resets a pomodoro focus block back to 25:00).
+    if (timer.routineId === id && timer.state !== 'Idle') {
+      push('/focus');
+      return;
+    }
     await commands.timerStart(id);
     push('/focus');
   }
@@ -75,21 +81,41 @@
     await routinesStore.refresh();
   }
 
-  async function reorder(target: number) {
-    const from = dragIndex;
-    if (from == null || from === target) {
-      dragIndex = null;
-      overIndex = null;
-      return;
-    }
+  async function reorder(from: number, target: number) {
+    if (from === target) return;
     const newList = [...routinesStore.list];
     const [moved] = newList.splice(from, 1);
     newList.splice(target, 0, moved);
-    const ids = newList.map((r) => r.id);
-    dragIndex = null;
-    overIndex = null;
-    await commands.routineReorder(ids);
+    await commands.routineReorder(newList.map((r) => r.id));
     await routinesStore.refresh();
+  }
+
+  function onDragMove(e: PointerEvent) {
+    const row = (document.elementFromPoint(e.clientX, e.clientY) as HTMLElement | null)
+      ?.closest('[data-routine-index]') as HTMLElement | null;
+    if (row) {
+      const idx = Number(row.dataset.routineIndex);
+      if (!Number.isNaN(idx)) overIndex = idx;
+    }
+  }
+
+  async function onDragUp() {
+    window.removeEventListener('pointermove', onDragMove);
+    window.removeEventListener('pointerup', onDragUp);
+    const from = dragFrom;
+    const to = overIndex;
+    dragFrom = null;
+    overIndex = null;
+    if (from != null && to != null && from !== to) {
+      await reorder(from, to);
+    }
+  }
+
+  function startDrag(i: number) {
+    dragFrom = i;
+    overIndex = i;
+    window.addEventListener('pointermove', onDragMove);
+    window.addEventListener('pointerup', onDragUp);
   }
 </script>
 
@@ -177,11 +203,9 @@
               {editing}
               onEdit={() => openEdit(routine)}
               onDelete={() => deleteRoutine(routine.id)}
-              onDragStart={() => (dragIndex = i)}
-              onDragOver={() => (overIndex = i)}
-              onDrop={() => reorder(i)}
-              onDragEnd={() => { dragIndex = null; overIndex = null; }}
-              dropTarget={overIndex === i && dragIndex !== null && dragIndex !== i}
+              index={i}
+              onHandleDown={() => startDrag(i)}
+              dropTarget={overIndex === i && dragFrom !== null && dragFrom !== i}
             />
           {/each}
         {/if}

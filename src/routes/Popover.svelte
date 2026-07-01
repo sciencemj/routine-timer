@@ -49,7 +49,10 @@
   });
 
   async function start(id: number) {
-    await commands.timerStart(id);
+    // Don't restart an already-running/paused session (would reset the pomodoro block).
+    if (!(timer.routineId === id && timer.state !== 'Idle')) {
+      await commands.timerStart(id);
+    }
     view = 'focus';
   }
 </script>

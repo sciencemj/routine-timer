@@ -10,10 +10,8 @@
     editing = false,
     onEdit,
     onDelete,
-    onDragStart,
-    onDragOver,
-    onDrop,
-    onDragEnd,
+    index = 0,
+    onHandleDown,
     dropTarget = false,
   }: {
     routine: Routine;
@@ -23,10 +21,8 @@
     editing?: boolean;
     onEdit?: () => void;
     onDelete?: () => void;
-    onDragStart?: () => void;
-    onDragOver?: () => void;
-    onDrop?: () => void;
-    onDragEnd?: () => void;
+    index?: number;
+    onHandleDown?: (e: PointerEvent) => void;
     dropTarget?: boolean;
   } = $props();
 
@@ -53,21 +49,9 @@
   class:drop-target={dropTarget}
   role="button"
   tabindex="0"
-  draggable={editing}
+  data-routine-index={index}
   onclick={handlePrimary}
   onkeydown={handleKeydown}
-  ondragstart={(e) => {
-    e.dataTransfer?.setData('text/plain', String(routine.id));
-    if (e.dataTransfer) e.dataTransfer.effectAllowed = 'move';
-    onDragStart?.();
-  }}
-  ondragover={(e) => {
-    e.preventDefault();
-    if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
-    onDragOver?.();
-  }}
-  ondrop={(e) => { e.preventDefault(); onDrop?.(); }}
-  ondragend={() => onDragEnd?.()}
 >
   <div class="icon-tile">{routine.icon}</div>
   <div class="row-main">
@@ -86,7 +70,12 @@
   </div>
   {#if editing}
     <div class="edit-controls">
-      <span class="drag-handle" aria-hidden="true">⠿</span>
+      <button
+        type="button"
+        class="drag-handle"
+        aria-label="드래그로 순서 변경"
+        onpointerdown={(e) => { e.preventDefault(); e.stopPropagation(); onHandleDown?.(e); }}
+      >⠿</button>
       <button
         type="button"
         class="icon-btn danger"
@@ -120,12 +109,6 @@
   .routine-row.active {
     background: var(--active-bg);
     border-color: var(--active-border);
-  }
-  .routine-row.editing {
-    cursor: grab;
-  }
-  .routine-row.editing:active {
-    cursor: grabbing;
   }
   .routine-row.drop-target {
     border-top-color: var(--accent);
@@ -204,10 +187,18 @@
     flex-shrink: 0;
   }
   .drag-handle {
+    background: none;
+    border: none;
+    padding: 0 2px;
     color: var(--chev);
     font-size: 15px;
+    line-height: 1;
     cursor: grab;
+    touch-action: none;
     user-select: none;
+  }
+  .drag-handle:active {
+    cursor: grabbing;
   }
   .icon-btn {
     width: 26px;
