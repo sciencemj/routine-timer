@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { render } from '@testing-library/svelte';
-import { invokeMock, resetTauri } from '../test/tauri-mock';
+import { invokeMock, resetTauri, emitTauri } from '../test/tauri-mock';
 import { resetTimer } from '$lib/timer.svelte';
 import Popover from './Popover.svelte';
 
@@ -44,5 +44,29 @@ describe('Popover', () => {
   it('shows empty state when no routines', async () => {
     const { findByText } = render(Popover);
     expect(await findByText('루틴이 없습니다')).toBeInTheDocument();
+  });
+
+  it('summary stays live: updates after routines://changed fires', async () => {
+    const { findByText } = render(Popover);
+
+    // Wait for initial render with todayStats (completed: 2)
+    await findByText(/남은.*완료/);
+
+    // Update mock to return new stats (completed: 5)
+    const updatedStats = { ...todayStats, completed: 5, remaining_secs: 1800 };
+    invokeMock.mockImplementation((cmd: string) =>
+      cmd === 'routines_list' ? Promise.resolve([]) :
+      cmd === 'stats_today' ? Promise.resolve(updatedStats) :
+      cmd === 'settings_get' ? Promise.resolve({ theme: 'system', streak_rule: 'focused' }) :
+      cmd === 'timer_get_state' ? Promise.resolve(idleSnapshot) :
+      Promise.resolve()
+    );
+
+    // Emit the routines://changed event — triggers routinesStore.refresh()
+    emitTauri('routines://changed', {});
+
+    // Wait for updated summary to appear (completed: 5, remaining: 1800s → 00:30:00)
+    const updated = await findByText(/5개 완료/);
+    expect(updated).toBeInTheDocument();
   });
 });

@@ -1,6 +1,6 @@
 <script lang="ts">
   import { timer, initTimerListeners } from '$lib/timer.svelte';
-  import { routinesStore } from '$lib/routines.svelte';
+  import { routinesStore, initRoutinesListeners } from '$lib/routines.svelte';
   import { themeStore } from '$lib/theme.svelte';
   import { commands } from '$lib/commands';
   import { formatDuration } from '$lib/time';
@@ -12,12 +12,14 @@
   // Alive-flag async cleanup pattern (spec §9)
   $effect(() => {
     let alive = true;
-    let cleanup: (() => void) | undefined;
+    let timerCleanup: (() => void) | undefined;
+    let routinesCleanup: (() => void) | undefined;
     themeStore.init();
     routinesStore.refresh();
     commands.timerGetState().then((s) => { if (alive) timer.apply(s); });
-    initTimerListeners().then((fn) => { if (alive) cleanup = fn; else fn(); });
-    return () => { alive = false; cleanup?.(); };
+    initTimerListeners().then((fn) => { if (alive) timerCleanup = fn; else fn(); });
+    initRoutinesListeners().then((fn) => { if (alive) routinesCleanup = fn; else fn(); });
+    return () => { alive = false; timerCleanup?.(); routinesCleanup?.(); };
   });
 </script>
 
@@ -72,7 +74,7 @@
     gap: 12px;
     padding: 16px;
     width: 100%;
-    min-height: 100vh;
+    min-height: 100%;
     box-sizing: border-box;
     background: var(--bg, #fff);
     color: var(--text, #111);
