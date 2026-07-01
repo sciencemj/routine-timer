@@ -90,6 +90,7 @@
 
 <style>
   .routine-row {
+    position: relative;
     display: flex;
     align-items: center;
     gap: 12px;
@@ -110,8 +111,15 @@
     background: var(--active-bg);
     border-color: var(--active-border);
   }
-  .routine-row.drop-target {
-    border-top-color: var(--accent);
+  /* Straight insertion indicator (sits in the 8px gap above the row) */
+  .routine-row.drop-target::before {
+    content: '';
+    position: absolute;
+    top: -5px;
+    left: 0;
+    right: 0;
+    height: 2px;
+    background: var(--accent);
   }
   .icon-tile {
     width: 34px;
