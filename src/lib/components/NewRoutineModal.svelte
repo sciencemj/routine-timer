@@ -1,6 +1,7 @@
 <script lang="ts">
   import { routinesStore } from '$lib/routines.svelte';
   import { commands } from '$lib/commands';
+  import { formatDurationKo } from '$lib/time';
 
   let { open, onclose }: {
     open: boolean;
@@ -22,14 +23,6 @@
     { label: '1시간 30분', secs: 5400 },
     { label: '2시간',     secs: 7200 },
   ];
-
-  function formatTarget(secs: number): string {
-    const h = Math.floor(secs / 3600);
-    const m = Math.floor((secs % 3600) / 60);
-    if (h > 0 && m > 0) return `${h}시간 ${m}분`;
-    if (h > 0) return `${h}시간`;
-    return `${m}분`;
-  }
 
   function resetForm() {
     name = '';
@@ -95,7 +88,7 @@
       <!-- 요구 시간 -->
       <div class="field">
         <span class="field-label">요구 시간</span>
-        <p class="duration-display">{formatTarget(targetSeconds)}</p>
+        <p class="duration-display">{formatDurationKo(targetSeconds)}</p>
         <div class="chips">
           {#each chips as chip}
             <button

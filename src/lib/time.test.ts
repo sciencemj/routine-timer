@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { formatDuration, formatClock } from './time';
+import { formatDuration, formatDurationKo, formatClock } from './time';
 
 describe('formatDuration', () => {
   it('formats mm:ss under an hour', () => {
@@ -12,6 +12,25 @@ describe('formatDuration', () => {
   });
   it('clamps negatives to zero', () => {
     expect(formatDuration(-5)).toBe('00:00');
+  });
+});
+
+describe('formatDurationKo', () => {
+  it('formats 0 seconds as 0분', () => {
+    expect(formatDurationKo(0)).toBe('0분');
+  });
+  it('formats minutes only', () => {
+    expect(formatDurationKo(1800)).toBe('30분');
+  });
+  it('formats whole hours only', () => {
+    expect(formatDurationKo(3600)).toBe('1시간');
+  });
+  it('formats hours plus minutes', () => {
+    expect(formatDurationKo(5400)).toBe('1시간 30분');
+    expect(formatDurationKo(23400)).toBe('6시간 30분');
+  });
+  it('clamps negatives to 0분', () => {
+    expect(formatDurationKo(-5)).toBe('0분');
   });
 });
 

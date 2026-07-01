@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { Routine } from '../types';
-  import { formatDuration } from '../time';
+  import { formatDurationKo } from '../time';
 
   let { routine, todaySecs, active = false, onclick }: {
     routine: Routine;
@@ -27,7 +27,7 @@
     <div class="progress-bar-track">
       <div class="progress-bar-fill" style="width: {progress * 100}%"></div>
     </div>
-    <span class="time-text mono">{formatDuration(todaySecs)} / {formatDuration(routine.target_seconds)}</span>
+    <span class="time-text mono">{formatDurationKo(todaySecs)} / {formatDurationKo(routine.target_seconds)}</span>
   </div>
   <span class="chev" aria-hidden="true">›</span>
 </button>

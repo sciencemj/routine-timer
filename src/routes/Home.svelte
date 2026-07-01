@@ -2,7 +2,7 @@
   import { push } from 'svelte-spa-router';
   import { timer } from '$lib/timer.svelte';
   import { routinesStore, initRoutinesListeners } from '$lib/routines.svelte';
-  import { formatDuration } from '$lib/time';
+  import { formatDurationKo } from '$lib/time';
   import { commands } from '$lib/commands';
   import RoutineRow from '$lib/components/RoutineRow.svelte';
   import NewRoutineModal from '$lib/components/NewRoutineModal.svelte';
@@ -57,7 +57,7 @@
 
     <!-- Subtext + goal card (stats guard) -->
     {#if stats}
-      <p class="subtext">오늘 <span class="accent">{formatDuration(stats.total_secs)}</span> 집중했어요.</p>
+      <p class="subtext">오늘 <span class="accent">{formatDurationKo(stats.total_secs)}</span> 집중했어요.</p>
 
       <!-- 오늘의 목표 card -->
       <div class="goal-card">
@@ -97,13 +97,13 @@
         <div class="goal-info">
           <p class="goal-label">오늘의 목표</p>
           <p class="goal-numbers">
-            <span class="goal-done">{formatDuration(stats.total_secs)}</span><!--
-            --><span class="goal-target"> / {formatDuration(totalTarget)}</span>
+            <span class="goal-done">{formatDurationKo(stats.total_secs)}</span><!--
+            --><span class="goal-target"> / {formatDurationKo(totalTarget)}</span>
           </p>
           <div class="h-bar-track">
             <div class="h-bar-fill" style="width: {overallPercent * 100}%"></div>
           </div>
-          <p class="goal-caption">남은 {formatDuration(stats.remaining_secs)} · {stats.routine_count}개 루틴 중 {stats.completed}개 완료</p>
+          <p class="goal-caption">남은 {formatDurationKo(stats.remaining_secs)} · {stats.routine_count}개 루틴 중 {stats.completed}개 완료</p>
         </div>
       </div>
     {/if}
