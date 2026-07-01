@@ -2,7 +2,15 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { render, fireEvent, waitFor } from '@testing-library/svelte';
 import { invokeMock, resetTauri } from '../../test/tauri-mock';
 import { resetTimer } from '$lib/timer.svelte';
+import type { Routine } from '$lib/types';
 import NewRoutineModal from './NewRoutineModal.svelte';
+
+const existingRoutine: Routine = {
+  id: 5, name: '기존 루틴', icon: '📚', color: null,
+  target_seconds: 1800, pomodoro_enabled: false,
+  focus_minutes: 25, break_minutes: 5,
+  sort_order: 1, archived: false, created_at: '',
+};
 
 describe('NewRoutineModal', () => {
   beforeEach(() => {
@@ -73,5 +81,29 @@ describe('NewRoutineModal', () => {
       props: { open: false, onclose: () => {} },
     });
     expect(queryByText('새 루틴')).toBeNull();
+  });
+
+  it('edit mode: prefills fields, titles as 루틴 편집, and calls routine_update with the changed name', async () => {
+    const { getByDisplayValue, getByText } = render(NewRoutineModal, {
+      props: { open: true, onclose: () => {}, editRoutine: existingRoutine },
+    });
+
+    expect(getByText('루틴 편집')).toBeTruthy();
+    expect(getByText('저장')).toBeTruthy();
+
+    const input = getByDisplayValue('기존 루틴') as HTMLInputElement;
+    input.value = '수정된 루틴';
+    await fireEvent.input(input);
+
+    await fireEvent.click(getByText('저장'));
+
+    await waitFor(() => {
+      expect(invokeMock).toHaveBeenCalledWith(
+        'routine_update',
+        expect.objectContaining({
+          routine: expect.objectContaining({ id: 5, name: '수정된 루틴', icon: '📚' }),
+        })
+      );
+    });
   });
 });

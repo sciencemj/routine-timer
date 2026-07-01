@@ -2,84 +2,53 @@
   import { routinesStore } from '$lib/routines.svelte';
   import { themeStore } from '$lib/theme.svelte';
   import { commands } from '$lib/commands';
-  import type { Routine, NewRoutine, ThemePref, StreakRule } from '$lib/types';
+  import { formatDurationKo } from '$lib/time';
+  import type { Routine, ThemePref, StreakRule } from '$lib/types';
+  import NewRoutineModal from '$lib/components/NewRoutineModal.svelte';
 
-  // Form state
-  let editingId = $state<number | null>(null);
-  let name = $state('');
-  let icon = $state('');
-  let hours = $state(0);
-  let minutes = $state(0);
-  let pomodoroEnabled = $state(false);
-  let focusMinutes = $state(25);
-  let breakMinutes = $state(5);
-
-  // Preferences state
+  // Streak-rule preference state (seeded from settingsGet on mount)
   let streakRule = $state<StreakRule>('focused');
 
-  // On mount: refresh routines, init theme, and load current streak_rule
+  // Edit-routine modal state (routine CREATION lives only in the dashboard modal)
+  let editOpen = $state(false);
+  let editingRoutine = $state<Routine | null>(null);
+
+  const themeOptions: { value: ThemePref; label: string }[] = [
+    { value: 'system', label: '시스템' },
+    { value: 'light', label: '라이트' },
+    { value: 'dark', label: '다크' },
+  ];
+
+  const streakOptions: { value: StreakRule; label: string }[] = [
+    { value: 'focused', label: '집중한 날' },
+    { value: 'any_completed', label: '루틴 1개+ 완성' },
+    { value: 'all_completed', label: '모든 루틴 완성' },
+  ];
+
+  // On mount: refresh routines, init theme, and seed current streak_rule
   $effect(() => {
+    let alive = true;
     routinesStore.refresh();
     themeStore.init();
-
-    let alive = true;
-    commands.settingsGet().then(s => {
+    commands.settingsGet().then((s) => {
       if (alive) streakRule = (s['streak_rule'] as StreakRule) ?? 'focused';
     });
     return () => { alive = false; };
   });
 
-  function editRoutine(r: Routine) {
-    editingId = r.id;
-    name = r.name;
-    icon = r.icon;
-    hours = Math.floor(r.target_seconds / 3600);
-    minutes = Math.floor((r.target_seconds % 3600) / 60);
-    pomodoroEnabled = r.pomodoro_enabled;
-    focusMinutes = r.focus_minutes;
-    breakMinutes = r.break_minutes;
+  async function selectStreakRule(rule: StreakRule) {
+    streakRule = rule;
+    await commands.settingsSet('streak_rule', rule);
   }
 
-  function resetForm() {
-    editingId = null;
-    name = '';
-    icon = '';
-    hours = 0;
-    minutes = 0;
-    pomodoroEnabled = false;
-    focusMinutes = 25;
-    breakMinutes = 5;
+  function openEdit(routine: Routine) {
+    editingRoutine = routine;
+    editOpen = true;
   }
 
-  async function save() {
-    const target_seconds = hours * 3600 + minutes * 60;
-    if (editingId !== null) {
-      const existing = routinesStore.list.find(r => r.id === editingId);
-      if (existing) {
-        await commands.routineUpdate({
-          ...existing,
-          name,
-          icon,
-          target_seconds,
-          pomodoro_enabled: pomodoroEnabled,
-          focus_minutes: focusMinutes,
-          break_minutes: breakMinutes,
-        });
-      }
-    } else {
-      const newRoutine: NewRoutine = {
-        name,
-        icon,
-        color: null,
-        target_seconds,
-        pomodoro_enabled: pomodoroEnabled,
-        focus_minutes: focusMinutes,
-        break_minutes: breakMinutes,
-      };
-      await commands.routineCreate(newRoutine);
-    }
-    await routinesStore.refresh();
-    resetForm();
+  function closeEdit() {
+    editOpen = false;
+    editingRoutine = null;
   }
 
   async function deleteRoutine(id: number) {
@@ -91,7 +60,7 @@
     if (index <= 0) return;
     const newList = [...routinesStore.list];
     [newList[index - 1], newList[index]] = [newList[index], newList[index - 1]];
-    await commands.routineReorder(newList.map(r => r.id));
+    await commands.routineReorder(newList.map((r) => r.id));
     await routinesStore.refresh();
   }
 
@@ -99,304 +68,244 @@
     if (index >= routinesStore.list.length - 1) return;
     const newList = [...routinesStore.list];
     [newList[index], newList[index + 1]] = [newList[index + 1], newList[index]];
-    await commands.routineReorder(newList.map(r => r.id));
+    await commands.routineReorder(newList.map((r) => r.id));
     await routinesStore.refresh();
-  }
-
-  async function handleStreakChange(e: Event) {
-    const value = (e.target as HTMLSelectElement).value as StreakRule;
-    streakRule = value;
-    await commands.settingsSet('streak_rule', value);
   }
 </script>
 
 <div class="settings">
-  <h1>설정</h1>
+  <div class="content">
+    <h1 class="page-title">설정</h1>
 
-  <!-- ── Routine Editor ── -->
-  <section class="section">
-    <h2>루틴 편집</h2>
-
-    {#each routinesStore.list as routine, i (routine.id)}
-      <div class="routine-item">
-        <span class="routine-name">{routine.icon} {routine.name}</span>
-        <div class="routine-actions">
-          <button type="button" onclick={() => moveUp(i)} disabled={i === 0} aria-label="위로">↑</button>
-          <button type="button" onclick={() => moveDown(i)} disabled={i === routinesStore.list.length - 1} aria-label="아래로">↓</button>
-          <button type="button" onclick={() => editRoutine(routine)}>편집</button>
-          <button type="button" onclick={() => deleteRoutine(routine.id)}>삭제</button>
-        </div>
+    <!-- 테마 -->
+    <section class="card">
+      <p class="section-label">테마</p>
+      <div class="segmented">
+        {#each themeOptions as opt (opt.value)}
+          <button
+            type="button"
+            class="segment"
+            class:active={themeStore.pref === opt.value}
+            onclick={() => themeStore.setPref(opt.value)}
+          >{opt.label}</button>
+        {/each}
       </div>
-    {/each}
+    </section>
 
-    <form onsubmit={(e) => { e.preventDefault(); save(); }}>
-      <h3>{editingId !== null ? '루틴 수정' : '새 루틴'}</h3>
-
-      <div class="field">
-        <label>이름
-          <input type="text" bind:value={name} />
-        </label>
+    <!-- 연속 규칙 -->
+    <section class="card">
+      <p class="section-label">연속 규칙</p>
+      <div class="segmented">
+        {#each streakOptions as opt (opt.value)}
+          <button
+            type="button"
+            class="segment"
+            class:active={streakRule === opt.value}
+            onclick={() => selectStreakRule(opt.value)}
+          >{opt.label}</button>
+        {/each}
       </div>
+    </section>
 
-      <div class="field">
-        <label>아이콘
-          <input type="text" bind:value={icon} />
-        </label>
-      </div>
-
-      <div class="field">
-        <label>요구 시간
-          <span class="time-inputs">
-            <input type="number" min="0" bind:value={hours} aria-label="시간" /> 시간
-            <input type="number" min="0" max="59" bind:value={minutes} aria-label="분" /> 분
-          </span>
-        </label>
-      </div>
-
-      <div class="field">
-        <label class="checkbox-label">
-          <input type="checkbox" bind:checked={pomodoroEnabled} />
-          포모도로
-        </label>
-      </div>
-
-      {#if pomodoroEnabled}
-        <div class="field">
-          <label>집중 분
-            <input type="number" min="1" bind:value={focusMinutes} />
-          </label>
-        </div>
-        <div class="field">
-          <label>휴식 분
-            <input type="number" min="1" bind:value={breakMinutes} />
-          </label>
+    <!-- 루틴 관리 -->
+    <section class="card">
+      <p class="section-label">루틴 관리</p>
+      {#if routinesStore.list.length === 0}
+        <p class="empty-state">아직 루틴이 없어요</p>
+      {:else}
+        <div class="routine-list">
+          {#each routinesStore.list as routine, i (routine.id)}
+            <div class="routine-row">
+              <div class="icon-tile">{routine.icon}</div>
+              <div class="row-main">
+                <span class="row-name">{routine.name}</span>
+                <span class="row-time">요구 시간 {formatDurationKo(routine.target_seconds)}</span>
+              </div>
+              <div class="row-actions">
+                <button
+                  type="button"
+                  class="icon-btn"
+                  onclick={() => moveUp(i)}
+                  disabled={i === 0}
+                  aria-label="위로"
+                >↑</button>
+                <button
+                  type="button"
+                  class="icon-btn"
+                  onclick={() => moveDown(i)}
+                  disabled={i === routinesStore.list.length - 1}
+                  aria-label="아래로"
+                >↓</button>
+                <button type="button" class="text-btn" onclick={() => openEdit(routine)}>편집</button>
+                <button type="button" class="text-btn danger" onclick={() => deleteRoutine(routine.id)}>삭제</button>
+              </div>
+            </div>
+          {/each}
         </div>
       {/if}
-
-      <div class="form-actions">
-        <button type="submit">저장</button>
-        {#if editingId !== null}
-          <button type="button" onclick={resetForm}>취소</button>
-        {/if}
-      </div>
-    </form>
-  </section>
-
-  <!-- ── Preferences ── -->
-  <section class="section">
-    <h2>환경 설정</h2>
-
-    <div class="field">
-      <p class="field-label">테마</p>
-      <div class="radio-group">
-        <label>
-          <input
-            type="radio"
-            name="theme"
-            value="system"
-            checked={themeStore.pref === 'system'}
-            onchange={() => themeStore.setPref('system')}
-          />
-          시스템
-        </label>
-        <label>
-          <input
-            type="radio"
-            name="theme"
-            value="light"
-            checked={themeStore.pref === 'light'}
-            onchange={() => themeStore.setPref('light')}
-          />
-          라이트
-        </label>
-        <label>
-          <input
-            type="radio"
-            name="theme"
-            value="dark"
-            checked={themeStore.pref === 'dark'}
-            onchange={() => themeStore.setPref('dark')}
-          />
-          다크
-        </label>
-      </div>
-    </div>
-
-    <div class="field">
-      <label>연속 달성 기준
-        <select value={streakRule} onchange={handleStreakChange}>
-          <option value="focused">집중한 날</option>
-          <option value="any_completed">루틴 1개+ 완성</option>
-          <option value="all_completed">모든 루틴 완성</option>
-        </select>
-      </label>
-    </div>
-  </section>
+    </section>
+  </div>
 </div>
+
+<NewRoutineModal open={editOpen} editRoutine={editingRoutine} onclose={closeEdit} />
 
 <style>
   .settings {
+    min-height: 100%;
+    background: var(--bg);
+    display: flex;
+    justify-content: center;
+  }
+  .content {
+    width: 100%;
+    max-width: 544px;
+    padding: 28px 28px 40px;
     display: flex;
     flex-direction: column;
-    gap: 24px;
-    padding: 24px;
+    gap: 16px;
   }
 
-  h1 {
+  .page-title {
     margin: 0;
-    font-size: 1.6rem;
+    font-size: 20px;
     font-weight: 700;
-    color: var(--text);
+    color: var(--ink);
   }
 
-  h2 {
-    margin: 0 0 8px;
-    font-size: 1.1rem;
-    font-weight: 600;
-    color: var(--text);
-  }
-
-  h3 {
-    margin: 0 0 8px;
-    font-size: 0.95rem;
-    font-weight: 600;
-    color: var(--text);
-  }
-
-  .section {
+  .card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: var(--r-card);
+    padding: 18px 20px;
     display: flex;
     flex-direction: column;
     gap: 12px;
   }
 
-  .routine-item {
+  .section-label {
+    margin: 0;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.02em;
+  }
+
+  /* Segmented control */
+  .segmented {
+    display: flex;
+    background: var(--track);
+    border-radius: 11px;
+    padding: 3px;
+    gap: 2px;
+  }
+  .segment {
+    flex: 1;
+    border: none;
+    background: transparent;
+    color: var(--faint);
+    font-family: var(--font-ui);
+    font-weight: 600;
+    font-size: 12.5px;
+    padding: 8px 6px;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: color 0.15s, background 0.15s, box-shadow 0.15s;
+    white-space: nowrap;
+  }
+  .segment.active {
+    background: var(--card);
+    color: var(--ink);
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1), 0 0 0 0.5px rgba(0, 0, 0, 0.06);
+  }
+
+  /* Routine management */
+  .empty-state {
+    margin: 0;
+    padding: 12px 0;
+    font-size: 13px;
+    color: var(--faint);
+  }
+  .routine-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .routine-row {
     display: flex;
     align-items: center;
-    justify-content: space-between;
-    padding: 8px 0;
-    border-bottom: 1px solid var(--border, #eee);
+    gap: 12px;
+    padding: 10px 0;
+    border-bottom: 1px solid var(--hair);
   }
-
-  .routine-name {
-    font-size: 0.95rem;
-    color: var(--text);
+  .routine-row:last-child {
+    border-bottom: none;
+    padding-bottom: 0;
   }
-
-  .routine-actions {
+  .icon-tile {
+    width: 34px;
+    height: 34px;
+    min-width: 34px;
     display: flex;
-    gap: 4px;
+    align-items: center;
+    justify-content: center;
+    background: var(--accent-bg);
+    border-radius: var(--r-btn);
+    font-size: 18px;
+    line-height: 1;
   }
-
-  .routine-actions button {
-    padding: 4px 8px;
-    font-size: 0.8rem;
+  .row-main {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+  }
+  .row-name {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--ink);
+  }
+  .row-time {
+    font-size: 12px;
+    color: var(--faint2);
+  }
+  .row-actions {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-shrink: 0;
+  }
+  .icon-btn {
+    width: 26px;
+    height: 26px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid var(--border);
+    border-radius: var(--r-chip);
+    background: var(--today-card);
+    color: var(--ink);
+    font-size: 13px;
+    line-height: 1;
     cursor: pointer;
-    border: 1px solid var(--border, #ddd);
-    border-radius: 4px;
-    background: var(--surface, #fff);
-    color: var(--text);
+    padding: 0;
   }
-
-  .routine-actions button:disabled {
-    opacity: 0.3;
+  .icon-btn:disabled {
+    opacity: 0.35;
     cursor: default;
   }
-
-  form {
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
-    padding: 16px;
-    border: 1px solid var(--border, #eee);
-    border-radius: 8px;
-    background: var(--surface, #fafafa);
-  }
-
-  .field {
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-  }
-
-  .field label {
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-    font-size: 0.9rem;
-    color: var(--text);
-  }
-
-  .checkbox-label {
-    flex-direction: row !important;
-    align-items: center;
-    gap: 8px !important;
-  }
-
-  .time-inputs {
-    display: flex;
-    align-items: center;
-    gap: 4px;
-  }
-
-  .field input[type='text'],
-  .field input[type='number'],
-  .field select {
-    padding: 6px 8px;
-    border: 1px solid var(--border, #ddd);
-    border-radius: 4px;
-    font-size: 0.9rem;
-    background: var(--bg, #fff);
-    color: var(--text);
-  }
-
-  .field input[type='number'] {
-    width: 60px;
-  }
-
-  .form-actions {
-    display: flex;
-    gap: 8px;
-    margin-top: 4px;
-  }
-
-  .form-actions button[type='submit'] {
-    padding: 8px 20px;
-    background: var(--accent, #4f6ef7);
-    color: #fff;
+  .text-btn {
     border: none;
-    border-radius: 6px;
-    font-size: 0.9rem;
+    background: none;
+    color: var(--accent);
+    font-family: var(--font-ui);
+    font-size: 12.5px;
+    font-weight: 600;
     cursor: pointer;
+    padding: 4px 4px;
   }
-
-  .form-actions button[type='button'] {
-    padding: 8px 16px;
-    background: var(--surface, #eee);
-    color: var(--text);
-    border: 1px solid var(--border, #ddd);
-    border-radius: 6px;
-    font-size: 0.9rem;
-    cursor: pointer;
-  }
-
-  .field-label {
-    margin: 0 0 4px;
-    font-size: 0.9rem;
-    font-weight: 500;
-    color: var(--text);
-  }
-
-  .radio-group {
-    display: flex;
-    gap: 16px;
-  }
-
-  .radio-group label {
-    display: flex;
-    align-items: center;
-    gap: 4px;
-    font-size: 0.9rem;
-    color: var(--text);
-    cursor: pointer;
+  .text-btn.danger {
+    color: #e5484d;
   }
 </style>

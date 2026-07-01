@@ -2,17 +2,21 @@
   import { routinesStore } from '$lib/routines.svelte';
   import { commands } from '$lib/commands';
   import { formatDurationKo } from '$lib/time';
+  import type { Routine } from '$lib/types';
 
-  let { open, onclose }: {
+  let { open, onclose, editRoutine = null }: {
     open: boolean;
     onclose: () => void;
+    editRoutine?: Routine | null;
   } = $props();
 
-  // Form state — pomodoro defaults ON per spec
+  // Form state — pomodoro defaults ON per spec (create mode)
   let name = $state('');
   let selectedEmoji = $state('🎯');
   let targetSeconds = $state(3600);
   let pomodoroEnabled = $state(true);
+  let focusMinutes = $state(25);
+  let breakMinutes = $state(5);
 
   const emojis = ['🎯', '📚', '✍️', '🏃', '🧘', '🌐'];
 
@@ -29,19 +33,54 @@
     selectedEmoji = '🎯';
     targetSeconds = 3600;
     pomodoroEnabled = true;
+    focusMinutes = 25;
+    breakMinutes = 5;
   }
 
-  async function handleCreate() {
+  function prefillFromRoutine(r: Routine) {
+    name = r.name;
+    selectedEmoji = r.icon;
+    targetSeconds = r.target_seconds;
+    pomodoroEnabled = r.pomodoro_enabled;
+    focusMinutes = r.focus_minutes;
+    breakMinutes = r.break_minutes;
+  }
+
+  // Whenever the modal opens, seed the form: edit mode prefills from
+  // editRoutine, create mode starts from defaults.
+  $effect(() => {
+    if (!open) return;
+    if (editRoutine) {
+      prefillFromRoutine(editRoutine);
+    } else {
+      resetForm();
+    }
+  });
+
+  async function handleSubmit() {
     if (!name.trim()) return;
-    await commands.routineCreate({
-      name: name.trim(),
-      icon: selectedEmoji,
-      color: null,
-      target_seconds: targetSeconds,
-      pomodoro_enabled: pomodoroEnabled,
-      focus_minutes: 25,
-      break_minutes: 5,
-    });
+    if (editRoutine) {
+      await commands.routineUpdate({
+        ...editRoutine,
+        name: name.trim(),
+        icon: selectedEmoji,
+        color: editRoutine.color,
+        target_seconds: targetSeconds,
+        pomodoro_enabled: pomodoroEnabled,
+        focus_minutes: focusMinutes,
+        break_minutes: breakMinutes,
+      });
+    } else {
+      await commands.routineCreate({
+        name: name.trim(),
+        icon: selectedEmoji,
+        color: null,
+        target_seconds: targetSeconds,
+        pomodoro_enabled: pomodoroEnabled,
+        focus_minutes: focusMinutes,
+        break_minutes: breakMinutes,
+      });
+    }
     await routinesStore.refresh();
     resetForm();
     onclose();
@@ -49,10 +88,10 @@
 </script>
 
 {#if open}
-  <div class="overlay" role="dialog" aria-modal="true" aria-label="새 루틴">
+  <div class="overlay" role="dialog" aria-modal="true" aria-label={editRoutine ? '루틴 편집' : '새 루틴'}>
     <div class="modal-header">
       <button class="close-btn" onclick={onclose}>취소</button>
-      <h2 class="modal-title">새 루틴</h2>
+      <h2 class="modal-title">{editRoutine ? '루틴 편집' : '새 루틴'}</h2>
       <div class="header-spacer"></div>
     </div>
 
@@ -105,7 +144,7 @@
         <div class="toggle-row">
           <div class="toggle-info">
             <span class="field-label">포모도로</span>
-            <span class="toggle-sub">25분 집중 · 5분 휴식</span>
+            <span class="toggle-sub">{focusMinutes}분 집중 · {breakMinutes}분 휴식</span>
           </div>
           <button
             class="toggle"
@@ -125,9 +164,9 @@
       <button class="btn-outline" onclick={onclose}>취소</button>
       <button
         class="btn-accent"
-        onclick={handleCreate}
+        onclick={handleSubmit}
         disabled={!name.trim()}
-      >루틴 추가</button>
+      >{editRoutine ? '저장' : '루틴 추가'}</button>
     </div>
   </div>
 {/if}
