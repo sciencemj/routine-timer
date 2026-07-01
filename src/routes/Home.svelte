@@ -6,9 +6,6 @@
   import { commands } from '$lib/commands';
   import RoutineCard from '$lib/components/RoutineCard.svelte';
 
-  // Greeting based on current hour
-  const greeting = $derived(new Date().getHours() < 12 ? '좋은 아침이에요' : '좋은 오후예요');
-
   // Live clock — refreshed every minute
   let now = $state(new Date());
   $effect(() => {
@@ -16,15 +13,19 @@
     return () => clearInterval(id);
   });
 
+  // Greeting based on current hour — derives from reactive `now` so it flips at midnight
+  const greeting = $derived(now.getHours() < 12 ? '좋은 아침이에요' : '좋은 오후예요');
+
   // Convenience alias
   const stats = $derived(routinesStore.stats);
 
   // On mount: load routines + subscribe to change events
   $effect(() => {
-    routinesStore.refresh();
+    let alive = true;
     let cleanup: (() => void) | undefined;
-    initRoutinesListeners().then((fn) => { cleanup = fn; });
-    return () => { cleanup?.(); };
+    routinesStore.refresh();
+    initRoutinesListeners().then((fn) => { if (alive) cleanup = fn; else fn(); });
+    return () => { alive = false; cleanup?.(); };
   });
 
   async function start(id: number) {
