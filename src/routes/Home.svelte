@@ -37,6 +37,10 @@
   // Edit-mode toggle for the routine list
   let editing = $state(false);
 
+  // Drag-and-drop reorder state
+  let dragIndex = $state<number | null>(null);
+  let overIndex = $state<number | null>(null);
+
   // On mount: load routines + subscribe to change events
   $effect(() => {
     let alive = true;
@@ -84,6 +88,23 @@
     const newList = [...routinesStore.list];
     [newList[index], newList[index + 1]] = [newList[index + 1], newList[index]];
     await commands.routineReorder(newList.map((r) => r.id));
+    await routinesStore.refresh();
+  }
+
+  async function reorder(target: number) {
+    const from = dragIndex;
+    if (from == null || from === target) {
+      dragIndex = null;
+      overIndex = null;
+      return;
+    }
+    const newList = [...routinesStore.list];
+    const [moved] = newList.splice(from, 1);
+    newList.splice(target, 0, moved);
+    const ids = newList.map((r) => r.id);
+    dragIndex = null;
+    overIndex = null;
+    await commands.routineReorder(ids);
     await routinesStore.refresh();
   }
 </script>
@@ -176,6 +197,11 @@
               onMoveDown={() => moveDown(i)}
               canMoveUp={i > 0}
               canMoveDown={i < routinesStore.list.length - 1}
+              onDragStart={() => (dragIndex = i)}
+              onDragOver={() => (overIndex = i)}
+              onDrop={() => reorder(i)}
+              onDragEnd={() => { dragIndex = null; overIndex = null; }}
+              dropTarget={overIndex === i && dragIndex !== null && dragIndex !== i}
             />
           {/each}
         {/if}

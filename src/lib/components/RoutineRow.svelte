@@ -14,6 +14,11 @@
     onMoveDown,
     canMoveUp = false,
     canMoveDown = false,
+    onDragStart,
+    onDragOver,
+    onDrop,
+    onDragEnd,
+    dropTarget = false,
   }: {
     routine: Routine;
     todaySecs: number;
@@ -26,6 +31,11 @@
     onMoveDown?: () => void;
     canMoveUp?: boolean;
     canMoveDown?: boolean;
+    onDragStart?: () => void;
+    onDragOver?: () => void;
+    onDrop?: () => void;
+    onDragEnd?: () => void;
+    dropTarget?: boolean;
   } = $props();
 
   const progress = $derived(routine.target_seconds > 0 ? Math.min(1, todaySecs / routine.target_seconds) : 0);
@@ -47,10 +57,17 @@
 <div
   class="routine-row"
   class:active
+  class:editing
+  class:drop-target={dropTarget}
   role="button"
   tabindex="0"
+  draggable={editing}
   onclick={handlePrimary}
   onkeydown={handleKeydown}
+  ondragstart={() => onDragStart?.()}
+  ondragover={(e) => { e.preventDefault(); onDragOver?.(); }}
+  ondrop={(e) => { e.preventDefault(); onDrop?.(); }}
+  ondragend={() => onDragEnd?.()}
 >
   <div class="icon-tile">{routine.icon}</div>
   <div class="row-main">
@@ -116,6 +133,15 @@
   .routine-row.active {
     background: var(--active-bg);
     border-color: var(--active-border);
+  }
+  .routine-row.editing {
+    cursor: grab;
+  }
+  .routine-row.editing:active {
+    cursor: grabbing;
+  }
+  .routine-row.drop-target {
+    border-top-color: var(--accent);
   }
   .icon-tile {
     width: 34px;
