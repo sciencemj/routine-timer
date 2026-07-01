@@ -79,6 +79,7 @@ pub struct TimerEngine {
     break_secs: i64,
     started_at: Option<DateTime<Utc>>,
     pending_completed: Option<CompletedSession>,
+    pre_pause_state: Option<TimerState>,
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────────
@@ -116,6 +117,7 @@ impl TimerEngine {
             break_secs: 0,
             started_at: None,
             pending_completed: None,
+            pre_pause_state: None,
         }
     }
 
@@ -132,6 +134,7 @@ impl TimerEngine {
         self.state = TimerState::Running;
         self.started_at = Some(self.clock.now());
         self.pending_completed = None;
+        self.pre_pause_state = None;
         match cfg.mode {
             Mode::Pomodoro => {
                 self.pomodoro_index = 1;
@@ -212,6 +215,61 @@ impl TimerEngine {
 
     pub fn state(&self) -> TimerState {
         self.state
+    }
+
+    /// Pause a running session. Running/Break → Paused; freezes the countdown.
+    /// Remembers the prior state so `resume` restores to exactly Running or Break.
+    pub fn pause(&mut self) {
+        if self.state == TimerState::Running || self.state == TimerState::Break {
+            self.pre_pause_state = Some(self.state);
+            self.state = TimerState::Paused;
+        }
+    }
+
+    /// Resume from Paused, restoring to whichever state was active before `pause`.
+    pub fn resume(&mut self) {
+        if self.state == TimerState::Paused {
+            self.state = self.pre_pause_state.unwrap_or(TimerState::Running);
+            self.pre_pause_state = None;
+        }
+    }
+
+    /// Skip the current break and jump immediately to the next focus interval.
+    /// Only meaningful during Pomodoro break phase; a no-op otherwise.
+    pub fn skip_break(&mut self) {
+        if self.phase == Phase::Break {
+            self.phase = Phase::Focus;
+            self.pomodoro_index += 1;
+            self.remaining = self.focus_secs;
+        }
+    }
+
+    /// Manually stop the timer and return a `CompletedSession`.
+    ///
+    /// - If a session is active (Running/Paused/Break): builds the session, resets to Idle, returns Some.
+    /// - If Idle with a pending auto-finalized session: drains and returns it.
+    /// - If Idle with nothing pending: returns None.
+    pub fn stop(&mut self) -> Option<CompletedSession> {
+        match self.state {
+            TimerState::Idle => {
+                // Drain any auto-finalized session (e.g. continuous mode hit target).
+                self.pending_completed.take()
+            }
+            _ => {
+                let done = CompletedSession {
+                    routine_id: self.routine_id.unwrap(),
+                    started_at: self.started_at.unwrap(),
+                    ended_at: self.clock.now(),
+                    seconds: self.session_focus_secs,
+                    completed: self.already_done_secs + self.session_focus_secs >= self.target_secs,
+                };
+                self.state = TimerState::Idle;
+                self.started_at = None;
+                self.pending_completed = None;
+                self.pre_pause_state = None;
+                Some(done)
+            }
+        }
     }
 
     /// Drain the stashed CompletedSession (set by auto-finalize). Returns None if empty.
@@ -318,6 +376,44 @@ mod tests {
         let s = e.tick();                      // in break
         assert_eq!(s.session_seconds, 1);
         assert_eq!(s.routine_today_secs, 11);  // 10 already + 1 focus
+    }
+
+    #[test]
+    fn pause_freezes_and_resume_continues() {
+        let mut e = engine(); e.start(cont_cfg());
+        e.tick();                       // 59
+        e.pause();
+        assert_eq!(e.state(), TimerState::Paused);
+        let s = e.tick();               // paused: no change
+        assert_eq!(s.remaining_secs, 59);
+        e.resume();
+        let s = e.tick();               // 58
+        assert_eq!(s.remaining_secs, 58);
+    }
+    #[test]
+    fn stop_returns_completed_session_and_resets() {
+        let start_at = Utc.timestamp_opt(1_700_000_000,0).unwrap();
+        let mut e = TimerEngine::new(Box::new(FakeClock(start_at)));
+        e.start(TimerConfig { target_secs: 3, ..cont_cfg() });
+        e.tick(); e.tick(); e.tick();   // 3 focus seconds, target reached
+        let done = e.stop().unwrap();
+        assert_eq!(done.routine_id, 1);
+        assert_eq!(done.seconds, 3);
+        assert!(done.completed);
+        assert_eq!(done.started_at, start_at);
+        assert_eq!(e.state(), TimerState::Idle);
+        assert!(e.stop().is_none());     // idle stop -> None
+    }
+    #[test]
+    fn skip_break_jumps_to_next_focus() {
+        let mut e = TimerEngine::new(Box::new(FakeClock(Utc.timestamp_opt(1_700_000_000,0).unwrap())));
+        e.start(TimerConfig { routine_id: 1, mode: Mode::Pomodoro, focus_secs: 1, break_secs: 30, target_secs: 3600, already_done_secs: 0 });
+        e.tick();                        // -> Break (30 left)
+        e.skip_break();
+        let s = e.snapshot();
+        assert_eq!(s.phase, Phase::Focus);
+        assert_eq!(s.pomodoro_index, 2);
+        assert_eq!(s.remaining_secs, 1);
     }
 
     #[test]
