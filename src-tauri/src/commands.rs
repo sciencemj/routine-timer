@@ -93,9 +93,16 @@ pub fn timer_start(
 ) -> Result<TimerSnapshot, String> {
     let snap = {
         let mut s = state.lock().map_err(|e| e.to_string())?;
+        // Guard: stop and persist any in-progress session before starting a new one
+        if s.engine.state() != crate::core::timer::TimerState::Idle {
+            if let Some(done) = s.engine.stop() {
+                crate::db::sessions::insert(&s.db, &done).map_err(|e| e.to_string())?;
+            }
+        }
         let routine = crate::db::routines::get(&s.db, routine_id)
             .map_err(|e| e.to_string())?
             .ok_or_else(|| format!("routine {} not found", routine_id))?;
+        // Recompute already_done AFTER the stop+insert so fresh seconds are included
         let tz = *chrono::Local::now().offset();
         let day = crate::core::stats::day_of(chrono::Utc::now(), tz);
         let sessions = crate::db::sessions::all(&s.db).map_err(|e| e.to_string())?;
@@ -113,24 +120,36 @@ pub fn timer_start(
 }
 
 #[tauri::command]
-pub fn timer_pause(state: State<'_, Mutex<AppState>>) -> Result<TimerSnapshot, String> {
-    let mut s = state.lock().map_err(|e| e.to_string())?;
-    s.engine.pause();
-    Ok(s.engine.snapshot())
+pub fn timer_pause(state: State<'_, Mutex<AppState>>, app: AppHandle) -> Result<TimerSnapshot, String> {
+    let snap = {
+        let mut s = state.lock().map_err(|e| e.to_string())?;
+        s.engine.pause();
+        s.engine.snapshot()
+    }; // guard dropped
+    app.emit("timer://state", &snap).map_err(|e| e.to_string())?;
+    Ok(snap)
 }
 
 #[tauri::command]
-pub fn timer_resume(state: State<'_, Mutex<AppState>>) -> Result<TimerSnapshot, String> {
-    let mut s = state.lock().map_err(|e| e.to_string())?;
-    s.engine.resume();
-    Ok(s.engine.snapshot())
+pub fn timer_resume(state: State<'_, Mutex<AppState>>, app: AppHandle) -> Result<TimerSnapshot, String> {
+    let snap = {
+        let mut s = state.lock().map_err(|e| e.to_string())?;
+        s.engine.resume();
+        s.engine.snapshot()
+    }; // guard dropped
+    app.emit("timer://state", &snap).map_err(|e| e.to_string())?;
+    Ok(snap)
 }
 
 #[tauri::command]
-pub fn timer_skip_break(state: State<'_, Mutex<AppState>>) -> Result<TimerSnapshot, String> {
-    let mut s = state.lock().map_err(|e| e.to_string())?;
-    s.engine.skip_break();
-    Ok(s.engine.snapshot())
+pub fn timer_skip_break(state: State<'_, Mutex<AppState>>, app: AppHandle) -> Result<TimerSnapshot, String> {
+    let snap = {
+        let mut s = state.lock().map_err(|e| e.to_string())?;
+        s.engine.skip_break();
+        s.engine.snapshot()
+    }; // guard dropped
+    app.emit("timer://state", &snap).map_err(|e| e.to_string())?;
+    Ok(snap)
 }
 
 #[tauri::command]
