@@ -44,4 +44,21 @@ describe('Settings', () => {
       );
     });
   });
+
+  it('clicking DB 리셋 opens a confirm modal, and only invokes db_reset after confirming', async () => {
+    const { findByText, queryByText } = render(Settings);
+
+    await fireEvent.click(await findByText('DB 리셋'));
+
+    // Confirm modal appears; db_reset must NOT have been called yet.
+    await findByText('정말 삭제할까요?');
+    expect(invokeMock).not.toHaveBeenCalledWith('db_reset');
+
+    await fireEvent.click(await findByText('삭제'));
+
+    await waitFor(() => {
+      expect(invokeMock).toHaveBeenCalledWith('db_reset');
+    });
+    expect(queryByText('정말 삭제할까요?')).toBeNull();
+  });
 });

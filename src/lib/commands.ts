@@ -18,4 +18,5 @@ export const commands = {
   statsReport: () => invoke<ReportData>('stats_report'),
   settingsGet: () => invoke<Record<string, string>>('settings_get'),
   settingsSet: (key: string, value: string) => invoke<void>('settings_set', { key, value }),
+  dbReset: () => invoke<TimerSnapshot>('db_reset'),
 };

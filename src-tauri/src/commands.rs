@@ -525,6 +525,23 @@ pub fn settings_get(state: State<'_, Mutex<AppState>>) -> Result<HashMap<String,
     Ok(map)
 }
 
+/// "DB 리셋" — discards any running session, wipes routines/sessions/suspended
+/// pomodoro state (keeping preferences), and notifies the frontend so both the
+/// routines list and the timer UI reset immediately.
+#[tauri::command]
+pub fn db_reset(state: State<'_, Mutex<AppState>>, app: AppHandle) -> Result<TimerSnapshot, String> {
+    let snap = {
+        let mut s = state.lock().map_err(|e| e.to_string())?;
+        let _ = s.engine.stop(); // discard any running session (we're wiping)
+        crate::db::reset(&s.db).map_err(|e| e.to_string())?;
+        s.current_routine_name = None;
+        s.engine.snapshot()
+    }; // guard dropped
+    app.emit("routines://changed", ()).map_err(|e| e.to_string())?;
+    app.emit("timer://state", &snap).map_err(|e| e.to_string())?;
+    Ok(snap)
+}
+
 #[tauri::command]
 pub fn settings_set(
     state: State<'_, Mutex<AppState>>,

@@ -1,12 +1,22 @@
 <script lang="ts">
   import { themeStore } from '$lib/theme.svelte';
   import { commands } from '$lib/commands';
+  import { routinesStore } from '$lib/routines.svelte';
   import type { ThemePref, StreakRule } from '$lib/types';
 
   // Streak-rule preference state (seeded from settingsGet on mount)
   let streakRule = $state<StreakRule>('focused');
   // Day-start-hour preference state (seeded from settingsGet on mount)
   let dayStartHour = $state('8');
+  // "DB 리셋" destructive-confirm modal
+  let confirmOpen = $state(false);
+  let deleteBtn = $state<HTMLButtonElement | null>(null);
+
+  // Focus the destructive action when the confirm modal opens, so keyboard
+  // users land somewhere sensible (still requires an explicit Enter to confirm).
+  $effect(() => {
+    if (confirmOpen) deleteBtn?.focus();
+  });
 
   const themeOptions: { value: ThemePref; label: string }[] = [
     { value: 'system', label: '시스템' },
@@ -46,7 +56,22 @@
     dayStartHour = value;
     await commands.settingsSet('day_start_hour', value);
   }
+
+  function openConfirm() { confirmOpen = true; }
+  function closeConfirm() { confirmOpen = false; }
+
+  async function confirmReset() {
+    await commands.dbReset();
+    await routinesStore.refresh();
+    closeConfirm();
+  }
+
+  function onConfirmKeydown(e: KeyboardEvent) {
+    if (confirmOpen && e.key === 'Escape') closeConfirm();
+  }
 </script>
+
+<svelte:window onkeydown={onConfirmKeydown} />
 
 <div class="settings">
   <div class="content">
@@ -96,8 +121,43 @@
       </select>
       <p class="setting-caption">이 시각을 기준으로 하루가 바뀝니다 (자정~이 시각의 집중은 전날로 집계)</p>
     </section>
+
+    <!-- 데이터 (danger zone) -->
+    <section class="card danger-card">
+      <p class="section-label danger-label">데이터</p>
+      <p class="setting-caption">모든 루틴과 집중 기록을 삭제합니다. 되돌릴 수 없습니다.</p>
+      <button type="button" class="danger-btn" onclick={openConfirm}>DB 리셋</button>
+    </section>
   </div>
 </div>
+
+{#if confirmOpen}
+  <!-- svelte-ignore a11y_click_events_have_key_events -->
+  <!-- svelte-ignore a11y_no_static_element_interactions -->
+  <div
+    class="confirm-backdrop"
+    role="presentation"
+    onclick={closeConfirm}
+  >
+    <!-- svelte-ignore a11y_click_events_have_key_events -->
+    <!-- svelte-ignore a11y_no_static_element_interactions -->
+    <div
+      class="confirm-card"
+      role="alertdialog"
+      tabindex="-1"
+      aria-modal="true"
+      aria-labelledby="confirm-title"
+      onclick={(e) => e.stopPropagation()}
+    >
+      <h2 id="confirm-title" class="confirm-title">정말 삭제할까요?</h2>
+      <p class="confirm-body">루틴과 집중 기록이 모두 사라지며 되돌릴 수 없습니다.</p>
+      <div class="confirm-actions">
+        <button type="button" class="btn-outline" onclick={closeConfirm}>취소</button>
+        <button type="button" class="btn-danger" bind:this={deleteBtn} onclick={confirmReset}>삭제</button>
+      </div>
+    </div>
+  </div>
+{/if}
 
 <style>
   .settings {
@@ -186,5 +246,102 @@
     margin: 0;
     font-size: 12px;
     color: var(--faint);
+  }
+
+  /* 데이터 (danger zone) */
+  .danger-card {
+    border-color: color-mix(in srgb, var(--neg) 30%, var(--border));
+  }
+  .danger-label {
+    color: var(--neg);
+  }
+  .danger-btn {
+    align-self: flex-start;
+    border: none;
+    border-radius: var(--r-btn);
+    background: var(--neg);
+    color: white;
+    font-family: var(--font-ui);
+    font-weight: 600;
+    font-size: 13px;
+    padding: 10px 18px;
+    cursor: pointer;
+    transition: opacity 0.15s;
+  }
+  .danger-btn:hover {
+    opacity: 0.9;
+  }
+
+  /* Confirm modal */
+  .confirm-backdrop {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.45);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 200;
+    padding: 20px;
+  }
+  .confirm-card {
+    width: 100%;
+    max-width: 340px;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: var(--r-card);
+    padding: 22px 20px 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    box-shadow: 0 20px 48px rgba(0, 0, 0, 0.28);
+  }
+  .confirm-title {
+    margin: 0;
+    font-size: 16px;
+    font-weight: 700;
+    color: var(--ink);
+  }
+  .confirm-body {
+    margin: 0;
+    font-size: 13px;
+    color: var(--muted);
+    line-height: 1.5;
+  }
+  .confirm-actions {
+    display: flex;
+    gap: 10px;
+    margin-top: 10px;
+  }
+  .confirm-actions .btn-outline {
+    flex: 1;
+    padding: 12px;
+    border: 1px solid var(--border);
+    border-radius: var(--r-btn);
+    background: transparent;
+    color: var(--ink);
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    font-family: var(--font-ui);
+  }
+  .btn-danger {
+    flex: 1;
+    padding: 12px;
+    border: none;
+    border-radius: var(--r-btn);
+    background: var(--neg);
+    color: white;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    font-family: var(--font-ui);
+    transition: opacity 0.15s;
+  }
+  .btn-danger:hover {
+    opacity: 0.9;
+  }
+  .btn-danger:focus-visible {
+    outline: 2px solid var(--neg);
+    outline-offset: 2px;
   }
 </style>
