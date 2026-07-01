@@ -18,7 +18,7 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2.6.3", features = [] }
 
 [dependencies]
-tauri = { version = "2.11.4", features = ["tray-icon", "image-png"] }
+tauri = { version = "2.11.4", features = ["tray-icon", "image-png", "macos-private-api"] }
 tauri-plugin-notification = "2.3.3"
 tauri-plugin-positioner = { version = "2.3.2", features = ["tray-icon"] }
 rusqlite = { version = "0.40.1", features = ["bundled"] }

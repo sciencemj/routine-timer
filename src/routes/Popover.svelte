@@ -5,6 +5,10 @@
   import { commands } from '$lib/commands';
   import { formatDurationKo } from '$lib/time';
   import RoutineRow from '$lib/components/RoutineRow.svelte';
+  import FocusView from '$lib/components/FocusView.svelte';
+
+  // Which view the popover shows: focus (default when a session is active) or dashboard.
+  let view = $state('dashboard');
 
   const stats = $derived(routinesStore.stats);
   const totalTarget = $derived(routinesStore.list.reduce((acc, r) => acc + r.target_seconds, 0));
@@ -25,19 +29,28 @@
     let routinesCleanup: (() => void) | undefined;
     themeStore.init();
     routinesStore.refresh();
-    commands.timerGetState().then((s) => { if (alive) timer.apply(s); });
+    commands.timerGetState().then((s) => {
+      if (alive) {
+        timer.apply(s);
+        view = timer.isActive ? 'focus' : 'dashboard';
+      }
+    });
     initTimerListeners().then((fn) => { if (alive) timerCleanup = fn; else fn(); });
     initRoutinesListeners().then((fn) => { if (alive) routinesCleanup = fn; else fn(); });
     return () => { alive = false; timerCleanup?.(); routinesCleanup?.(); };
   });
 
   async function start(id: number) {
-    // Popover has no router nav — starting a routine focuses it in the main app window.
     await commands.timerStart(id);
+    view = 'focus';
   }
 </script>
 
-<div class="popover">
+<div class="popover-shell">
+  {#if view === 'focus'}
+    <FocusView onBack={() => (view = 'dashboard')} />
+  {:else}
+    <div class="popover">
   <!-- 오늘의 목표 summary -->
   {#if stats}
     <div class="goal-card">
@@ -102,9 +115,28 @@
       {/if}
     </div>
   </div>
+    </div>
+  {/if}
 </div>
 
 <style>
+  /* Transparent window so only the rounded card shows */
+  :global(html),
+  :global(body) {
+    background: transparent;
+  }
+
+  /* Rounded + shadowed outer shell (margin leaves room for the drop shadow) */
+  .popover-shell {
+    margin: 10px;
+    border-radius: 16px;
+    box-shadow: 0 20px 50px -15px rgba(10, 12, 20, 0.45);
+    background: var(--bg);
+    overflow: hidden;
+    height: calc(100% - 20px);
+    box-sizing: border-box;
+  }
+
   .popover {
     display: flex;
     flex-direction: column;
