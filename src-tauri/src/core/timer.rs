@@ -75,9 +75,7 @@ pub struct TimerEngine {
     session_focus_secs: i64,
     already_done_secs: i64,
     target_secs: i64,
-    #[allow(dead_code)] // used by Task 5 (pomodoro focus cycling)
     focus_secs: i64,
-    #[allow(dead_code)] // used by Task 5 (pomodoro break cycling)
     break_secs: i64,
     started_at: Option<DateTime<Utc>>,
     pending_completed: Option<CompletedSession>,
@@ -130,14 +128,20 @@ impl TimerEngine {
         self.target_secs = cfg.target_secs;
         self.already_done_secs = cfg.already_done_secs;
         self.session_focus_secs = 0;
-        self.pomodoro_index = 0;
         self.phase = Phase::Focus;
         self.state = TimerState::Running;
         self.started_at = Some(self.clock.now());
         self.pending_completed = None;
-        // Continuous: count down the remaining quota for today.
-        // Pomodoro: Task 5 will override remaining with focus_secs.
-        self.remaining = cfg.target_secs - cfg.already_done_secs;
+        match cfg.mode {
+            Mode::Pomodoro => {
+                self.pomodoro_index = 1;
+                self.remaining = cfg.focus_secs;
+            }
+            Mode::Continuous => {
+                self.pomodoro_index = 0;
+                self.remaining = cfg.target_secs - cfg.already_done_secs;
+            }
+        }
     }
 
     /// Advance exactly 1 second. Pure counter — does NOT diff wall-clock time.
@@ -145,29 +149,59 @@ impl TimerEngine {
     pub fn tick(&mut self) -> TimerSnapshot {
         let prev_state = self.state;
         let mut event: Option<TimerEvent> = None;
+        let mut phase_changed = false;
 
-        if self.state == TimerState::Running && self.phase == Phase::Focus {
-            if self.remaining > 0 {
-                self.remaining -= 1;
-                self.session_focus_secs += 1;
-            }
+        if self.state == TimerState::Running {
+            match self.phase {
+                Phase::Focus => {
+                    if self.remaining > 0 {
+                        self.remaining -= 1;
+                        self.session_focus_secs += 1;
+                    }
 
-            // Continuous: auto-finalize when quota is exhausted.
-            if self.remaining == 0 && self.mode == Mode::Continuous {
-                self.state = TimerState::Idle;
-                event = Some(TimerEvent::TargetReached);
-                self.pending_completed = Some(CompletedSession {
-                    routine_id: self.routine_id.unwrap(),
-                    started_at: self.started_at.unwrap(),
-                    ended_at: self.clock.now(),
-                    seconds: self.session_focus_secs,
-                    completed: true,
-                });
+                    if self.remaining == 0 {
+                        match self.mode {
+                            Mode::Continuous => {
+                                // Auto-finalize when quota is exhausted.
+                                self.state = TimerState::Idle;
+                                event = Some(TimerEvent::TargetReached);
+                                self.pending_completed = Some(CompletedSession {
+                                    routine_id: self.routine_id.unwrap(),
+                                    started_at: self.started_at.unwrap(),
+                                    ended_at: self.clock.now(),
+                                    seconds: self.session_focus_secs,
+                                    completed: true,
+                                });
+                            }
+                            Mode::Pomodoro => {
+                                // Switch to break phase; cycle until user stops.
+                                self.phase = Phase::Break;
+                                self.remaining = self.break_secs;
+                                event = Some(TimerEvent::FocusEnded);
+                                phase_changed = true;
+                            }
+                        }
+                    }
+                }
+                Phase::Break => {
+                    // Break ticks decrement remaining but do NOT add focus seconds.
+                    if self.remaining > 0 {
+                        self.remaining -= 1;
+                    }
+
+                    if self.remaining == 0 {
+                        // Switch back to next focus interval.
+                        self.phase = Phase::Focus;
+                        self.remaining = self.focus_secs;
+                        self.pomodoro_index += 1;
+                        event = Some(TimerEvent::BreakEnded);
+                        phase_changed = true;
+                    }
+                }
             }
-            // Pomodoro focus/break cycling is implemented in Task 5.
         }
 
-        let state_changed = self.state != prev_state;
+        let state_changed = phase_changed || (self.state != prev_state);
         self.build_snapshot(event, state_changed)
     }
 
@@ -256,6 +290,34 @@ mod tests {
         assert_eq!(s.remaining_secs, 59);
         assert_eq!(s.session_seconds, 1);
         assert_eq!(s.routine_today_secs, 1);
+    }
+
+    #[test]
+    fn pomodoro_cycles_focus_break_and_counts_index() {
+        let mut e = TimerEngine::new(Box::new(FakeClock(Utc.timestamp_opt(1_700_000_000,0).unwrap())));
+        e.start(TimerConfig { routine_id: 1, mode: Mode::Pomodoro, focus_secs: 2, break_secs: 1, target_secs: 3600, already_done_secs: 0 });
+        assert_eq!(e.snapshot().phase, Phase::Focus);
+        assert_eq!(e.snapshot().pomodoro_index, 1);
+        e.tick();                              // focus 1 left
+        let s = e.tick();                      // focus 0 -> break begins
+        assert_eq!(s.event, Some(TimerEvent::FocusEnded));
+        assert_eq!(s.phase, Phase::Break);
+        assert_eq!(s.remaining_secs, 1);
+        assert_eq!(s.session_seconds, 2);      // break does not add focus seconds
+        let s = e.tick();                      // break 0 -> next focus
+        assert_eq!(s.event, Some(TimerEvent::BreakEnded));
+        assert_eq!(s.phase, Phase::Focus);
+        assert_eq!(s.pomodoro_index, 2);
+        assert_eq!(s.remaining_secs, 2);
+    }
+    #[test]
+    fn pomodoro_break_does_not_add_focus_seconds() {
+        let mut e = TimerEngine::new(Box::new(FakeClock(Utc.timestamp_opt(1_700_000_000,0).unwrap())));
+        e.start(TimerConfig { routine_id: 1, mode: Mode::Pomodoro, focus_secs: 1, break_secs: 2, target_secs: 3600, already_done_secs: 10 });
+        e.tick();                              // focus done -> break
+        let s = e.tick();                      // in break
+        assert_eq!(s.session_seconds, 1);
+        assert_eq!(s.routine_today_secs, 11);  // 10 already + 1 focus
     }
 
     #[test]
