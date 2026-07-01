@@ -1,15 +1,83 @@
+/* Box-sizing reset */
+*, *::before, *::after {
+  box-sizing: border-box;
+}
+
+/* Radius scale */
 :root {
+  --r-card: 14px;
+  --r-btn: 12px;
+  --r-pill: 20px;
+  --r-chip: 9px;
+  --r-bar: 3px;
+
+  /* Fonts */
   --font-ui: 'Pretendard Variable', system-ui, sans-serif;
   --font-mono: 'JetBrains Mono', ui-monospace, monospace;
   --font-display: 'Space Grotesk', var(--font-ui);
 }
+
 :root, [data-theme='light'] {
-  --bg: #e7e6e3; --surface: #ffffff; --text: #16181d;
-  --muted: rgba(0,0,0,.5); --accent: #2f6bed; --ring-track: rgba(0,0,0,.08);
+  --bg: #ffffff;
+  --chrome: #fcfcfb;
+  --card: #ffffff;
+  --today-card: #f5f7fa;
+  --ink: #191b20;
+  --muted: #73726b;
+  --faint: #a9a79f;
+  --faint2: #bdbbb3;
+  --accent: #2f6bed;
+  --accent-bg: #eef3fe;
+  --border: #eceef2;
+  --hair: #f1f0eb;
+  --track: #eef1f6;
+  --ring-track: #e7ebf1;
+  --active-bg: #f3f7ff;
+  --active-border: #dde9ff;
+  --active-track: #e1eaff;
+  --chev: #c2c0b8;
+  --row-hover: #f6f8fb;
+  --dot-empty: #dfe3ea;
+  --radial: rgba(47,107,237,.10);
+  --ring-glow: drop-shadow(0 0 4px rgba(47,107,237,.28));
+  --btn-glow: 0 14px 28px -8px rgba(47,107,237,.5);
 }
+
 [data-theme='dark'] {
-  --bg: #0f1115; --surface: #1a1d24; --text: #f2f3f5;
-  --muted: rgba(255,255,255,.55); --accent: #4d82ff; --ring-track: rgba(255,255,255,.1);
+  --bg: #0a0c11;
+  --chrome: #0c0e13;
+  --card: #13161d;
+  --today-card: #11141b;
+  --ink: #eef1f8;
+  --muted: #8a90a0;
+  --faint: #6b7283;
+  --faint2: #6b7283;
+  --accent: #5b8def;
+  --accent-bg: #15233e;
+  --border: #1f2530;
+  --hair: #1c212b;
+  --track: #171b24;
+  --ring-track: #171b24;
+  --active-bg: #13203a;
+  --active-border: #2b4a86;
+  --active-track: #1c2c4a;
+  --chev: #525a68;
+  --row-hover: #161b24;
+  --dot-empty: #272e3a;
+  --radial: rgba(91,141,239,.22);
+  --ring-glow: drop-shadow(0 0 8px rgba(91,141,239,.9));
+  --btn-glow: 0 0 32px rgba(91,141,239,.6);
 }
-body { margin: 0; background: var(--bg); color: var(--text); font-family: var(--font-ui); -webkit-font-smoothing: antialiased; }
-.timer-numerals { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--font-ui);
+  -webkit-font-smoothing: antialiased;
+}
+
+.mono {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}

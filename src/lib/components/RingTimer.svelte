@@ -8,9 +8,16 @@
 </script>
 <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
   <circle cx={size/2} cy={size/2} r={r} fill="none" stroke="var(--ring-track)" stroke-width={stroke} />
-  <circle cx={size/2} cy={size/2} r={r} fill="none" stroke={accent} stroke-width={stroke}
+  <circle class="arc" cx={size/2} cy={size/2} r={r} fill="none" stroke={accent} stroke-width={stroke}
     stroke-linecap="round" stroke-dasharray={c} stroke-dashoffset={offset}
     transform={`rotate(-90 ${size/2} ${size/2})`} />
   <text x="50%" y="50%" text-anchor="middle" dominant-baseline="central"
-    class="timer-numerals" font-size={size*0.22} fill="var(--text)">{label}</text>
+    class="mono" font-size={size*0.22} fill="var(--ink)">{label}</text>
 </svg>
+
+<style>
+  .arc {
+    transition: stroke-dashoffset 1s linear;
+    filter: var(--ring-glow);
+  }
+</style>
