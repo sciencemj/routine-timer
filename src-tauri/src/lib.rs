@@ -104,7 +104,7 @@ pub fn run() {
                 .skip_taskbar(true)
                 .visible(false)
                 .resizable(false)
-                .inner_size(320.0, 420.0)
+                .inner_size(380.0, 560.0)
                 .title("")
                 .build()?;
 

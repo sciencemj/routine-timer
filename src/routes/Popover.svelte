@@ -4,16 +4,19 @@
   import { themeStore } from '$lib/theme.svelte';
   import { commands } from '$lib/commands';
   import { formatDurationKo } from '$lib/time';
-  import RingTimer from '$lib/components/RingTimer.svelte';
+  import RoutineRow from '$lib/components/RoutineRow.svelte';
 
   const stats = $derived(routinesStore.stats);
-  const routine = $derived(routinesStore.list.find((r) => r.id === timer.routineId));
-
-  const headerIcon = $derived(routine?.icon ?? '⏱️');
-  const headerName = $derived(routine?.name ?? '루틴 타이머');
-  const headerStatus = $derived(
-    timer.isActive ? (timer.phase === 'Break' ? '휴식 중' : '집중 중') : '루틴을 선택해 시작하세요'
+  const totalTarget = $derived(routinesStore.list.reduce((acc, r) => acc + r.target_seconds, 0));
+  const overallPercent = $derived(
+    stats && totalTarget > 0 ? Math.min(1, stats.total_secs / totalTarget) : 0
   );
+
+  // Compact SVG ring constants (smaller sibling of Home's 오늘의 목표 ring)
+  const RING_SIZE = 64;
+  const RING_STROKE = 7;
+  const RING_R = (RING_SIZE - RING_STROKE) / 2;
+  const RING_C = 2 * Math.PI * RING_R;
 
   // Alive-flag async cleanup pattern (spec §9)
   $effect(() => {
@@ -27,56 +30,78 @@
     initRoutinesListeners().then((fn) => { if (alive) routinesCleanup = fn; else fn(); });
     return () => { alive = false; timerCleanup?.(); routinesCleanup?.(); };
   });
+
+  async function start(id: number) {
+    // Popover has no router nav — starting a routine focuses it in the main app window.
+    await commands.timerStart(id);
+  }
 </script>
 
 <div class="popover">
-  <!-- Header: current routine chip + name + status -->
-  <div class="header">
-    <div class="icon-chip">{headerIcon}</div>
-    <div class="header-text">
-      <p class="header-name">{headerName}</p>
-      <p class="header-status">{headerStatus}</p>
-    </div>
-  </div>
+  <!-- 오늘의 목표 summary -->
+  {#if stats}
+    <div class="goal-card">
+      <svg width={RING_SIZE} height={RING_SIZE} class="ring-svg" aria-hidden="true">
+        <circle
+          cx={RING_SIZE / 2} cy={RING_SIZE / 2} r={RING_R}
+          fill="none"
+          stroke="var(--ring-track)"
+          stroke-width={RING_STROKE}
+        />
+        <circle
+          cx={RING_SIZE / 2} cy={RING_SIZE / 2} r={RING_R}
+          fill="none"
+          stroke="var(--accent)"
+          stroke-width={RING_STROKE}
+          stroke-linecap="round"
+          stroke-dasharray={RING_C}
+          stroke-dashoffset={RING_C * (1 - overallPercent)}
+          transform={`rotate(-90 ${RING_SIZE / 2} ${RING_SIZE / 2})`}
+        />
+        <text
+          x={RING_SIZE / 2} y={RING_SIZE / 2}
+          text-anchor="middle"
+          dominant-baseline="central"
+          font-size="11"
+          font-weight="700"
+          fill="var(--ink)"
+          font-family="var(--font-ui)"
+        >{Math.round(overallPercent * 100)}%</text>
+      </svg>
 
-  <!-- Today summary -->
-  <div class="summary">
-    {#if stats}
-      <p class="summary-text">남은 {formatDurationKo(stats.remaining_secs)} · {stats.completed}개 완료</p>
-    {:else}
-      <p class="summary-text summary-loading">로딩 중…</p>
-    {/if}
-  </div>
-
-  {#if timer.isActive}
-    <!-- Active state: ring timer + pause/resume -->
-    <div class="active-view">
-      <div class="ring-wrapper">
-        <RingTimer progress={timer.progress} label={timer.label} size={120} />
-      </div>
-      <div class="controls">
-        {#if timer.state === 'Paused'}
-          <button class="btn-primary" onclick={() => commands.timerResume()}>계속</button>
-        {:else}
-          <button class="btn-secondary" onclick={() => commands.timerPause()}>일시정지</button>
-        {/if}
+      <div class="goal-info">
+        <p class="goal-label">오늘의 목표</p>
+        <p class="goal-numbers">
+          <span class="goal-done">{formatDurationKo(stats.total_secs)}</span><!--
+          --><span class="goal-target"> / {formatDurationKo(totalTarget)}</span>
+        </p>
+        <p class="goal-caption">남은 {formatDurationKo(stats.remaining_secs)} · {stats.completed}개 완료</p>
       </div>
     </div>
   {:else}
-    <!-- Inactive state: quick-start list -->
+    <div class="goal-card goal-loading">
+      <p class="summary-loading">로딩 중…</p>
+    </div>
+  {/if}
+
+  <!-- 오늘의 루틴 -->
+  <div class="routines-section">
+    <h2 class="section-title">오늘의 루틴</h2>
     <div class="routine-list">
       {#if routinesStore.list.length === 0}
-        <p class="empty">루틴이 없습니다</p>
+        <p class="empty-state">루틴이 없습니다</p>
       {:else}
-        {#each routinesStore.list as r (r.id)}
-          <button class="routine-btn" onclick={() => commands.timerStart(r.id)}>
-            <span class="routine-icon">{r.icon}</span>
-            <span class="routine-label">{r.name}</span>
-          </button>
+        {#each routinesStore.list as routine (routine.id)}
+          <RoutineRow
+            {routine}
+            todaySecs={routinesStore.secondsFor(routine.id)}
+            active={timer.routineId === routine.id && timer.isActive}
+            onclick={() => start(routine.id)}
+          />
         {/each}
       {/if}
     </div>
-  {/if}
+  </div>
 </div>
 
 <style>
@@ -86,163 +111,95 @@
     gap: 14px;
     padding: 16px;
     width: 100%;
-    min-height: 100%;
+    height: 100%;
     box-sizing: border-box;
     background: var(--bg);
     color: var(--ink);
     font-family: var(--font-ui);
+    overflow-y: auto;
   }
 
-  /* Header */
-  .header {
-    display: flex;
-    align-items: center;
-    gap: 10px;
+  /* 오늘의 목표 card */
+  .goal-card {
     background: var(--card);
     border: 1px solid var(--border);
     border-radius: var(--r-card);
-    padding: 10px 12px;
-  }
-  .icon-chip {
-    width: 34px;
-    height: 34px;
-    min-width: 34px;
+    padding: 14px;
     display: flex;
     align-items: center;
+    gap: 14px;
+    flex-shrink: 0;
+  }
+  .goal-loading {
     justify-content: center;
-    background: var(--accent-bg);
-    border-radius: 10px;
-    font-size: 17px;
-    line-height: 1;
+    padding: 20px 14px;
   }
-  .header-text {
-    flex: 1;
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-    min-width: 0;
-  }
-  .header-name {
-    margin: 0;
-    font-size: 14px;
-    font-weight: 600;
-    color: var(--ink);
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-  .header-status {
-    margin: 0;
-    font-size: 11.5px;
-    color: var(--muted);
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-
-  /* Today summary */
-  .summary-text {
+  .summary-loading {
     margin: 0;
     font-size: 12.5px;
     color: var(--muted);
-    font-weight: 500;
+    opacity: 0.7;
   }
-  .summary-loading {
-    opacity: 0.6;
+  .ring-svg {
+    flex-shrink: 0;
   }
-
-  /* Active view */
-  .active-view {
+  .goal-info {
+    flex: 1;
     display: flex;
     flex-direction: column;
-    align-items: center;
-    gap: 12px;
-    padding-top: 4px;
+    gap: 4px;
+    min-width: 0;
+  }
+  .goal-label {
+    margin: 0;
+    font-size: 11px;
+    color: var(--faint);
+  }
+  .goal-numbers {
+    margin: 0;
+    font-size: 15px;
+    line-height: 1.2;
+  }
+  .goal-done {
+    font-weight: 700;
+    color: var(--ink);
+  }
+  .goal-target {
+    font-size: 12px;
+    color: var(--faint2);
+  }
+  .goal-caption {
+    margin: 0;
+    font-size: 11px;
+    color: var(--faint);
   }
 
-  .ring-wrapper {
+  /* 오늘의 루틴 section */
+  .routines-section {
     display: flex;
-    justify-content: center;
-    align-items: center;
-  }
-
-  .controls {
-    display: flex;
+    flex-direction: column;
     gap: 8px;
+    min-height: 0;
   }
-
-  .btn-primary,
-  .btn-secondary {
-    padding: 8px 22px;
-    border: none;
-    border-radius: var(--r-btn);
+  .section-title {
+    margin: 0;
     font-size: 13px;
     font-weight: 600;
-    font-family: var(--font-ui);
-    cursor: pointer;
-    transition: opacity 150ms;
+    color: var(--ink);
   }
-  .btn-primary:hover,
-  .btn-secondary:hover {
-    opacity: 0.85;
-  }
-
-  .btn-primary {
-    background: var(--accent);
-    color: #fff;
-  }
-
-  .btn-secondary {
-    background: var(--accent-bg);
-    color: var(--accent);
-  }
-
-  /* Inactive: quick-start routine list */
   .routine-list {
     display: flex;
     flex-direction: column;
     gap: 6px;
   }
-
-  .routine-btn {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    padding: 9px 11px;
-    background: var(--card);
-    border: 1px solid var(--border);
-    border-radius: var(--r-btn);
-    font-size: 13px;
-    font-weight: 500;
-    color: var(--ink);
-    font-family: var(--font-ui);
-    cursor: pointer;
-    text-align: left;
-    width: 100%;
-    transition: background 150ms;
-  }
-
-  .routine-btn:hover {
-    background: var(--row-hover);
-  }
-
-  .routine-icon {
-    font-size: 16px;
-    line-height: 1;
-  }
-
-  .routine-label {
-    flex: 1;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-
-  .empty {
+  .empty-state {
     margin: 0;
+    padding: 16px;
+    text-align: center;
     font-size: 13px;
     color: var(--faint);
-    text-align: center;
-    padding: 16px 0;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: var(--r-card);
   }
 </style>
