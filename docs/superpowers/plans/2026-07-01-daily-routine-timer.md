@@ -13,6 +13,7 @@
 Every task's requirements implicitly include this section. Copy version pins verbatim.
 
 - **Platform (this plan):** macOS only. Keep the Dock icon — do **NOT** set `LSUIElement` or `ActivationPolicy::Accessory`.
+- **Package manager / JS runtime:** **bun**. Use `bun install`, `bun add`, `bun add -d`, `bun run <script>`, and `bunx <bin>`. Do **NOT** use `npm`/`npx`/`yarn`/`pnpm` (a `bun.lockb` is the lockfile). The Tauri config's `beforeDevCommand`/`beforeBuildCommand` call `bun run dev`/`bun run build`.
 - **Rust deps (src-tauri/Cargo.toml):**
   - `tauri = { version = "2.11.4", features = ["tray-icon", "image-png"] }`
   - `tauri-build = { version = "2.6.3", features = [] }` (build-dependency)
@@ -22,8 +23,8 @@ Every task's requirements implicitly include this section. Copy version pins ver
   - `chrono = { version = "0.4.45", features = ["serde"] }`
   - `serde = { version = "1", features = ["derive"] }`, `serde_json = "1"`
   - `tokio = { version = "1", features = ["time"] }`
-- **npm deps:** `@tauri-apps/api@2.11.1`, `@tauri-apps/plugin-notification@2.3.3`, `@tauri-apps/plugin-positioner@2.3.2`, `svelte-spa-router@5.1.1`, `pretendard`, `@fontsource/jetbrains-mono`, `@fontsource/space-grotesk`.
-- **npm devDeps:** `@tauri-apps/cli@^2.11`, `svelte@5.56.4`, `vite@8.1.2`, `@sveltejs/vite-plugin-svelte@7.1.2`, `typescript@~6.0.3`, `svelte-check@^4.6.0`, `vitest@4.1.9`, `@testing-library/svelte@5.4.2`, `@testing-library/jest-dom@^6`, `jsdom@29.1.1`.
+- **Runtime deps** (in `package.json`, installed by `bun install`): `@tauri-apps/api@2.11.1`, `@tauri-apps/plugin-notification@2.3.3`, `@tauri-apps/plugin-positioner@2.3.2`, `svelte-spa-router@5.1.1`, `pretendard`, `@fontsource/jetbrains-mono`, `@fontsource/space-grotesk`.
+- **Dev deps** (in `package.json`, installed by `bun install`): `@tauri-apps/cli@^2.11`, `svelte@5.56.4`, `vite@8.1.2`, `@sveltejs/vite-plugin-svelte@7.1.2`, `typescript@~6.0.3`, `svelte-check@^4.6.0`, `vitest@4.1.9`, `@testing-library/svelte@5.4.2`, `@testing-library/jest-dom@^6`, `jsdom@29.1.1`.
 - **Tauri v2 trait split:** `use tauri::{Manager, Emitter};` — `emit`/`emit_to` are on `Emitter`; `manage`/`state`/`get_webview_window`/`tray_by_id` are on `Manager`.
 - **Frontend imports:** `invoke` from `@tauri-apps/api/core`; `listen`/`UnlistenFn` from `@tauri-apps/api/event`; `getCurrentWindow` from `@tauri-apps/api/window`.
 - **Reactivity:** Svelte 5 runes (`$state`/`$derived`/`$effect`) only work in `.svelte` and `.svelte.ts` files — name reactive stores `*.svelte.ts`.
@@ -78,7 +79,7 @@ Every task's requirements implicitly include this section. Copy version pins ver
 - Delete: any `svelte.config.js`, `src/routes/+*` (SvelteKit files) if the template emits them.
 
 **Interfaces:**
-- Produces: a running app shell (`npm run tauri dev`) with hash routing; `WebviewUrl` route `#/` renders a placeholder.
+- Produces: a running app shell (`bun run tauri dev`) with hash routing; `WebviewUrl` route `#/` renders a placeholder.
 
 > ⚠️ The `create-tauri-app` **Svelte** template is SvelteKit-based. We want a plain Svelte + Vite SPA. Steps below scaffold, then strip Kit and add `svelte-spa-router`.
 
@@ -86,7 +87,7 @@ Every task's requirements implicitly include this section. Copy version pins ver
 
 Run (from repo root `todo_timer/`):
 ```bash
-npm create tauri-app@latest . -- --template svelte-ts --manager npm --identifier com.minjun.dailyroutinetimer
+bunx create-tauri-app@latest . --template svelte-ts --manager bun --identifier com.minjun.dailyroutinetimer
 ```
 Expected: files created in place. If it refuses because the dir is non-empty, scaffold in a temp dir and move files in, preserving `docs/` and `.git/`.
 
@@ -178,9 +179,9 @@ Replace `src-tauri/tauri.conf.json` build/app/bundle to match:
   "version": "0.1.0",
   "identifier": "com.minjun.dailyroutinetimer",
   "build": {
-    "beforeDevCommand": "npm run dev",
+    "beforeDevCommand": "bun run dev",
     "devUrl": "http://localhost:1420",
-    "beforeBuildCommand": "npm run build",
+    "beforeBuildCommand": "bun run build",
     "frontendDist": "../dist"
   },
   "app": {
@@ -204,8 +205,8 @@ Replace `src-tauri/tauri.conf.json` build/app/bundle to match:
 
 Run:
 ```bash
-npm install
-npm run tauri dev
+bun install
+bun run tauri dev
 ```
 Expected: app window opens showing "Home" (route `#/`). Close it. Then verify Rust builds standalone:
 ```bash
@@ -275,7 +276,7 @@ describe('formatDuration', () => {
 
 - [ ] **Step 3: Run test to verify it fails**
 
-Run: `npm run test -- time`
+Run: `bun run test time`
 Expected: FAIL — `formatDuration` not exported / module not found.
 
 - [ ] **Step 4: Implement**
@@ -302,7 +303,7 @@ export function formatClock(date: Date): string {
 
 - [ ] **Step 5: Run test to verify it passes**
 
-Run: `npm run test -- time`
+Run: `bun run test time`
 Expected: PASS (3 tests).
 
 - [ ] **Step 6: Commit**
@@ -1335,7 +1336,7 @@ let _tray = TrayIconBuilder::with_id("main-tray")
     .build(app)?;
 ```
 
-- [ ] **Step 2: Verify build + run** — `cd src-tauri && cargo build && cd ..`; `npm run tauri dev`. Expected: menubar shows `--:--` next to the icon; **right-click** shows the menu (대시보드 열기 / 일시정지·계속 / 종료), 종료 quits the app; left-click does nothing yet (no popover window until Task 18). Dock icon present.
+- [ ] **Step 2: Verify build + run** — `cd src-tauri && cargo build && cd ..`; `bun run tauri dev`. Expected: menubar shows `--:--` next to the icon; **right-click** shows the menu (대시보드 열기 / 일시정지·계속 / 종료), 종료 quits the app; left-click does nothing yet (no popover window until Task 18). Dock icon present.
 
 - [ ] **Step 3: Commit**
 ```bash
@@ -1366,7 +1367,7 @@ let _popover = WebviewWindowBuilder::new(app, "popover", WebviewUrl::App("index.
 ```
 > Do **NOT** attach `.on_window_event` on the builder for focus-lost hide: the builder-level closure is `Fn(&WindowEvent)` (no window handle exists at build time). Focus-lost auto-hide is wired at the **app level** in Task 19's `Builder::on_window_event`, whose closure is `Fn(&Window, &WindowEvent)`.
 
-- [ ] **Step 2: Verify** — `npm run tauri dev`. Click the menubar icon → the popover appears under the tray showing the `/popover` placeholder; click elsewhere → it hides; click icon again → toggles. Expected: correct show/hide + placement.
+- [ ] **Step 2: Verify** — `bun run tauri dev`. Click the menubar icon → the popover appears under the tray showing the `/popover` placeholder; click elsewhere → it hides; click icon again → toggles. Expected: correct show/hide + placement.
 
 - [ ] **Step 3: Commit**
 ```bash
@@ -1446,7 +1447,7 @@ async function ensureNotifications() {
 ensureNotifications();
 ```
 
-- [ ] **Step 4: Verify** — `npm run tauri dev`. Expected: on first launch macOS asks for notification permission; closing the main window hides it (app stays in menubar/Dock); re-open via Dock. `cargo build` clean (so Task 16's `NotificationExt` now compiles).
+- [ ] **Step 4: Verify** — `bun run tauri dev`. Expected: on first launch macOS asks for notification permission; closing the main window hides it (app stays in menubar/Dock); re-open via Dock. `cargo build` clean (so Task 16's `NotificationExt` now compiles).
 
 - [ ] **Step 5: Commit**
 ```bash
@@ -1522,7 +1523,7 @@ export const commands = {
 ```
 > Note: `routine_create`'s Rust param is `new: NewRoutine`, so the JS key is `new`. Keep names aligned.
 
-- [ ] **Step 3: Verify** — `npx tsc --noEmit` (or `npm run check`). Expected: no type errors.
+- [ ] **Step 3: Verify** — `bunx tsc --noEmit` (or `bun run check`). Expected: no type errors.
 
 - [ ] **Step 4: Commit**
 ```bash
@@ -1597,7 +1598,7 @@ describe('timer store', () => {
 });
 ```
 
-- [ ] **Step 3: Run to verify it fails** — `npm run test -- timer.test`. Expected: FAIL.
+- [ ] **Step 3: Run to verify it fails** — `bun run test timer.test`. Expected: FAIL.
 
 - [ ] **Step 4: Implement** `src/lib/timer.svelte.ts`:
 ```ts
@@ -1636,7 +1637,7 @@ export async function initTimerListeners(): Promise<UnlistenFn> {
 }
 ```
 
-- [ ] **Step 5: Run to verify it passes** — `npm run test -- timer.test`. Expected: PASS.
+- [ ] **Step 5: Run to verify it passes** — `bun run test timer.test`. Expected: PASS.
 
 - [ ] **Step 6: Commit**
 ```bash
@@ -1674,7 +1675,7 @@ describe('routines store', () => {
 });
 ```
 
-- [ ] **Step 2: Run to verify it fails** — `npm run test -- routines.test`. Expected: FAIL.
+- [ ] **Step 2: Run to verify it fails** — `bun run test routines.test`. Expected: FAIL.
 
 - [ ] **Step 3: Implement** `src/lib/routines.svelte.ts`:
 ```ts
@@ -1700,7 +1701,7 @@ export async function initRoutinesListeners() {
 }
 ```
 
-- [ ] **Step 4: Run to verify it passes** — `npm run test -- routines.test`. Expected: PASS.
+- [ ] **Step 4: Run to verify it passes** — `bun run test routines.test`. Expected: PASS.
 
 - [ ] **Step 5: Commit**
 ```bash
@@ -1741,11 +1742,11 @@ describe('theme store', () => {
 });
 ```
 
-- [ ] **Step 3: Run to verify it fails** — `npm run test -- theme.test`. Expected: FAIL.
+- [ ] **Step 3: Run to verify it fails** — `bun run test theme.test`. Expected: FAIL.
 
 - [ ] **Step 4: Implement** `src/lib/theme.svelte.ts` using `getCurrentWindow().theme()`, `onThemeChanged`, `commands.settingsGet/settingsSet`, and applying `document.documentElement.dataset.theme = effective`. `effective = pref === 'system' ? systemTheme : pref`.
 
-- [ ] **Step 5: Run to verify it passes** — `npm run test -- theme.test`. Expected: PASS.
+- [ ] **Step 5: Run to verify it passes** — `bun run test theme.test`. Expected: PASS.
 
 - [ ] **Step 6: Commit**
 ```bash
@@ -1812,7 +1813,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: var(--
 
 - [ ] **Step 4: `RoutineCard.svelte`** — icon + name + `RingTimer` (progress = `todaySecs/routine.target_seconds`) + status text + remaining. Use `formatDuration`. Wire `onclick`. Status precedence: `active` → `진행 중`; else `todaySecs >= routine.target_seconds` → `완료`; else `todaySecs > 0` → `일부 진행`; else `미시작`. (`active` is passed by the dashboard as `timer.routineId === routine.id && timer.isActive`, so `진행 중` reflects the LIVE timer, not merely accumulated time.)
 
-- [ ] **Step 5: Verify** — `npm run check` + `npm run test`. Expected: type-check clean, existing tests pass. (Visual check happens in Task 30.)
+- [ ] **Step 5: Verify** — `bun run check` + `bun run test`. Expected: type-check clean, existing tests pass. (Visual check happens in Task 30.)
 
 - [ ] **Step 6: Commit**
 ```bash
@@ -1864,7 +1865,7 @@ describe('Home', () => {
 });
 ```
 
-- [ ] **Step 3: Run test** — `npm run test -- Home.test`. Expected: PASS. Fix wiring until green.
+- [ ] **Step 3: Run test** — `bun run test Home.test`. Expected: PASS. Fix wiring until green.
 
 - [ ] **Step 4: Commit**
 ```bash
@@ -1910,7 +1911,7 @@ describe('Focus', () => {
 ```
 (The wrapper `timerPause: () => invoke('timer_pause')` calls `invoke` with a single argument, so the recorded call is `['timer_pause']` — assert with the single arg, not `('timer_pause', undefined)`.)
 
-- [ ] **Step 3: Run test** — `npm run test -- Focus.test`. Expected: PASS.
+- [ ] **Step 3: Run test** — `bun run test Focus.test`. Expected: PASS.
 
 - [ ] **Step 4: Commit**
 ```bash
@@ -1953,7 +1954,7 @@ describe('Settings', () => {
 ```
 (Adjust label/button text to your markup, kept consistent with the assertions.)
 
-- [ ] **Step 3: Run test** — `npm run test -- Settings.test`. Expected: PASS.
+- [ ] **Step 3: Run test** — `bun run test Settings.test`. Expected: PASS.
 
 - [ ] **Step 4: Commit**
 ```bash
@@ -1973,7 +1974,7 @@ git commit -m "feat(ui): settings + routine editor"
 
 - [ ] **Step 2: Implement `Report.svelte` stub** — heading `집중 기록` + copy `리포트는 곧 추가됩니다` (deferred slice). Keeps the route valid so nav never breaks.
 
-- [ ] **Step 3: Verify** — `npm run check` + `npm run test`. Expected: clean + green.
+- [ ] **Step 3: Verify** — `bun run check` + `bun run test`. Expected: clean + green.
 
 - [ ] **Step 4: Commit**
 ```bash
@@ -1993,7 +1994,7 @@ git commit -m "feat(ui): popover screen + report stub"
 
 - [ ] **Step 1: Implement** an `$effect` in `App.svelte` that, when the current window label is `main` (`getCurrentWindow().label`), calls `themeStore.init()` and `initRoutinesListeners()` and returns their cleanup. The popover route handles its own init in Task 28.
 
-- [ ] **Step 2: Verify** — `npm run check` + `npm run test`. Expected: clean + green.
+- [ ] **Step 2: Verify** — `bun run check` + `bun run test`. Expected: clean + green.
 
 - [ ] **Step 3: Commit**
 ```bash
@@ -2009,9 +2010,9 @@ git commit -m "feat(ui): app boot sequence (theme + routines init)"
 
 - [ ] **Step 1: Run the full test + build gates**
 ```bash
-npm run test            # all Vitest green
+bun run test            # all Vitest green
 cd src-tauri && cargo test && cargo build && cd ..   # all cargo tests green, build ok
-npm run tauri dev
+bun run tauri dev
 ```
 
 - [ ] **Step 2: Manual checklist** (verify each; file+fix any failure, then re-commit):
