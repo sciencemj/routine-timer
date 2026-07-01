@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { formatDuration } from './time';
+import { formatDuration, formatClock } from './time';
 
 describe('formatDuration', () => {
   it('formats mm:ss under an hour', () => {
@@ -12,5 +12,16 @@ describe('formatDuration', () => {
   });
   it('clamps negatives to zero', () => {
     expect(formatDuration(-5)).toBe('00:00');
+  });
+});
+
+describe('formatClock', () => {
+  it('formats AM times with 오전', () => {
+    expect(formatClock(new Date(2024, 0, 1, 8, 42))).toBe('오전 8:42');
+    expect(formatClock(new Date(2024, 0, 1, 0, 0))).toBe('오전 12:00'); // midnight
+  });
+  it('formats PM times with 오후', () => {
+    expect(formatClock(new Date(2024, 0, 1, 14, 5))).toBe('오후 2:05');
+    expect(formatClock(new Date(2024, 0, 1, 12, 0))).toBe('오후 12:00'); // noon
   });
 });
