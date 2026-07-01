@@ -13,7 +13,7 @@ class TimerStore {
   targetSecs = $state(0);
   label = $state('00:00');
 
-  progress = $derived(this.targetSecs > 0 ? Math.min(1, this.routineTodaySecs / this.targetSecs) : 0);
+  progress = $derived(this.targetSecs > 0 ? Math.max(0, Math.min(1, this.routineTodaySecs / this.targetSecs)) : 0);
   isActive = $derived(this.state === 'Running' || this.state === 'Break');
 
   apply(s: TimerSnapshot) {
@@ -25,6 +25,19 @@ class TimerStore {
   }
 }
 export const timer = new TimerStore();
+
+export function resetTimer() {
+  timer.state = 'Idle';
+  timer.mode = 'Continuous';
+  timer.phase = 'Focus';
+  timer.routineId = null;
+  timer.pomodoroIndex = 1;
+  timer.remainingSecs = 0;
+  timer.sessionSeconds = 0;
+  timer.routineTodaySecs = 0;
+  timer.targetSecs = 0;
+  timer.label = '00:00';
+}
 
 export async function initTimerListeners(): Promise<UnlistenFn> {
   const unTick = await listen<TimerSnapshot>('timer://tick', (e) => timer.apply(e.payload));
