@@ -4,7 +4,7 @@ pub mod db;
 pub mod state;
 
 use std::sync::Mutex;
-use tauri::Manager;
+use tauri::{Manager, WebviewUrl, WebviewWindowBuilder};
 use tauri::tray::{TrayIconBuilder, TrayIconEvent, MouseButton, MouseButtonState};
 use tauri::menu::{MenuBuilder, MenuItemBuilder};
 use tauri_plugin_positioner::{WindowExt, Position};
@@ -82,6 +82,16 @@ pub fn run() {
                     }
                 })
                 .build(app)?;
+
+            let _popover = WebviewWindowBuilder::new(app, "popover", WebviewUrl::App("index.html#/popover".into()))
+                .decorations(false)
+                .always_on_top(true)
+                .skip_taskbar(true)
+                .visible(false)
+                .resizable(false)
+                .inner_size(320.0, 420.0)
+                .title("")
+                .build()?;
 
             Ok(())
         })
