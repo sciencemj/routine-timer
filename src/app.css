@@ -1,0 +1,15 @@
+:root {
+  --font-ui: 'Pretendard Variable', system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, monospace;
+  --font-display: 'Space Grotesk', var(--font-ui);
+}
+:root, [data-theme='light'] {
+  --bg: #e7e6e3; --surface: #ffffff; --text: #16181d;
+  --muted: rgba(0,0,0,.5); --accent: #2f6bed; --ring-track: rgba(0,0,0,.08);
+}
+[data-theme='dark'] {
+  --bg: #0f1115; --surface: #1a1d24; --text: #f2f3f5;
+  --muted: rgba(255,255,255,.55); --accent: #4d82ff; --ring-track: rgba(255,255,255,.1);
+}
+body { margin: 0; background: var(--bg); color: var(--text); font-family: var(--font-ui); -webkit-font-smoothing: antialiased; }
+.timer-numerals { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
