@@ -22,6 +22,7 @@ pub fn run() {
                 db: conn,
                 current_routine_name: None,
             }));
+            crate::state::spawn_tick(app.handle().clone());
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
