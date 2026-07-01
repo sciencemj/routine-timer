@@ -20,6 +20,7 @@ vi.mock('@tauri-apps/api/window', () => ({
     label: 'main',
     theme: () => Promise.resolve('light'),
     onThemeChanged: () => Promise.resolve(() => {}),
+    onFocusChanged: () => Promise.resolve(() => {}),
     setTheme: mocks.setTheme,
   }),
 }));

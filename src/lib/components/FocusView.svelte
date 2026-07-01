@@ -7,8 +7,9 @@
 
   interface Props {
     onBack: () => void;
+    size?: number;
   }
-  let { onBack }: Props = $props();
+  let { onBack, size = 246 }: Props = $props();
 
   // Look up current routine from the store
   const routine = $derived(routinesStore.list?.find((r) => r.id === timer.routineId));
@@ -69,9 +70,8 @@
     <!-- Ring with radial glow -->
     <div class="ring-stage">
       <div class="radial-glow" aria-hidden="true"></div>
-      <RingTimer progress={timer.progress} label={timer.label} size={246} />
+      <RingTimer progress={timer.progress} label={timer.label} {size} />
     </div>
-    <p class="caption">남은 시간 · {timer.label}</p>
 
     <!-- Pomodoro block -->
     {#if timer.mode === 'Pomodoro' && routine}
@@ -226,12 +226,6 @@
     position: relative;
     z-index: 1;
   }
-  .caption {
-    margin: 0;
-    font-size: 12px;
-    color: var(--faint);
-  }
-
   /* Pomodoro block */
   .pomodoro {
     display: flex;

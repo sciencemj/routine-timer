@@ -105,7 +105,7 @@ pub fn run() {
                 .visible(false)
                 .resizable(false)
                 .transparent(true)
-                .inner_size(400.0, 600.0)
+                .inner_size(400.0, 720.0)
                 .title("")
                 .build()?;
 

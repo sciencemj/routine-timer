@@ -6,6 +6,7 @@
   import { formatDurationKo } from '$lib/time';
   import RoutineRow from '$lib/components/RoutineRow.svelte';
   import FocusView from '$lib/components/FocusView.svelte';
+  import { getCurrentWindow } from '@tauri-apps/api/window';
 
   // Which view the popover shows: focus (default when a session is active) or dashboard.
   let view = $state('dashboard');
@@ -27,6 +28,7 @@
     let alive = true;
     let timerCleanup: (() => void) | undefined;
     let routinesCleanup: (() => void) | undefined;
+    let focusCleanup: (() => void) | undefined;
     themeStore.init();
     routinesStore.refresh();
     commands.timerGetState().then((s) => {
@@ -37,7 +39,13 @@
     });
     initTimerListeners().then((fn) => { if (alive) timerCleanup = fn; else fn(); });
     initRoutinesListeners().then((fn) => { if (alive) routinesCleanup = fn; else fn(); });
-    return () => { alive = false; timerCleanup?.(); routinesCleanup?.(); };
+    // Each time the popover is shown (window gains focus), snap back to the running timer.
+    getCurrentWindow()
+      .onFocusChanged(({ payload: focused }) => {
+        if (focused && timer.isActive) view = 'focus';
+      })
+      .then((fn) => { if (alive) focusCleanup = fn; else fn(); });
+    return () => { alive = false; timerCleanup?.(); routinesCleanup?.(); focusCleanup?.(); };
   });
 
   async function start(id: number) {
@@ -48,7 +56,7 @@
 
 <div class="popover-shell">
   {#if view === 'focus'}
-    <FocusView onBack={() => (view = 'dashboard')} />
+    <FocusView onBack={() => (view = 'dashboard')} size={180} />
   {:else}
     <div class="popover">
   <!-- 오늘의 목표 summary -->
