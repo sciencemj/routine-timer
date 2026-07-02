@@ -183,28 +183,29 @@ impl TimerEngine {
                         self.session_focus_secs += 1;
                     }
 
-                    if self.remaining == 0 {
-                        match self.mode {
-                            Mode::Continuous => {
-                                // Auto-finalize when quota is exhausted.
-                                self.state = TimerState::Idle;
-                                event = Some(TimerEvent::TargetReached);
-                                self.pending_completed = Some(CompletedSession {
-                                    routine_id: self.routine_id.unwrap(),
-                                    started_at: self.started_at.unwrap(),
-                                    ended_at: self.clock.now(),
-                                    seconds: self.session_focus_secs,
-                                    completed: true,
-                                });
-                            }
-                            Mode::Pomodoro => {
-                                // Switch to break phase; cycle until user stops.
-                                self.phase = Phase::Break;
-                                self.remaining = self.break_secs;
-                                event = Some(TimerEvent::FocusEnded);
-                                phase_changed = true;
-                            }
-                        }
+                    // The routine's required time is filled → finalize to Idle
+                    // (BOTH modes). For Continuous this coincides with remaining==0;
+                    // for Pomodoro this stops the focus/break cycling once the daily
+                    // target is met, instead of looping forever.
+                    let target_filled = self.target_secs > 0
+                        && self.already_done_secs + self.session_focus_secs >= self.target_secs;
+
+                    if target_filled {
+                        self.state = TimerState::Idle;
+                        event = Some(TimerEvent::TargetReached);
+                        self.pending_completed = Some(CompletedSession {
+                            routine_id: self.routine_id.unwrap(),
+                            started_at: self.started_at.unwrap(),
+                            ended_at: self.clock.now(),
+                            seconds: self.session_focus_secs,
+                            completed: true,
+                        });
+                    } else if self.mode == Mode::Pomodoro && self.remaining == 0 {
+                        // Focus block ended before the target → switch to break.
+                        self.phase = Phase::Break;
+                        self.remaining = self.break_secs;
+                        event = Some(TimerEvent::FocusEnded);
+                        phase_changed = true;
                     }
                 }
                 Phase::Break => {
@@ -482,5 +483,24 @@ mod tests {
         assert_eq!(s.remaining_secs, 1500);
         assert_eq!(s.pomodoro_index, 1);
         assert_eq!(s.phase, Phase::Focus);
+    }
+
+    #[test]
+    fn pomodoro_finalizes_when_target_filled() {
+        // Target fills mid focus-block (before the block ends): pomodoro must stop,
+        // not keep cycling focus/break forever.
+        let mut e = engine();
+        e.start(TimerConfig {
+            routine_id: 1, mode: Mode::Pomodoro, focus_secs: 10, break_secs: 5,
+            target_secs: 2, already_done_secs: 0, resume: None,
+        });
+        e.tick();                 // session 1s
+        let s = e.tick();         // session 2s -> target filled
+        assert_eq!(s.state, TimerState::Idle);
+        assert_eq!(s.event, Some(TimerEvent::TargetReached));
+        assert_eq!(s.phase, Phase::Focus);       // did NOT flip to break
+        let done = e.take_completed().unwrap();
+        assert_eq!(done.seconds, 2);
+        assert!(done.completed);
     }
 }

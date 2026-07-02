@@ -48,7 +48,7 @@ pub fn spawn_tick(app: AppHandle) {
                     TimerEvent::BreakEnded => ("휴식 끝", "다시 집중해볼까요?"),
                     TimerEvent::TargetReached => ("목표 달성", "오늘 목표를 채웠어요!"),
                 };
-                let _ = app.notification().builder().title(title).body(body).show();
+                let _ = app.notification().builder().title(title).body(body).sound("default").show();
             }
         }
     });
