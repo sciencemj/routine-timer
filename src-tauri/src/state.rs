@@ -32,8 +32,11 @@ pub fn spawn_tick(app: AppHandle) {
             if snap.state_changed { let _ = app.emit("timer://state", &snap); }
             if persisted { let _ = app.emit("routines://changed", ()); }
             if let Some(tray) = app.tray_by_id("main-tray") {
-                let title = if snap.state == TimerState::Idle {
-                    None
+                // macOS does NOT clear the menubar title when passed None — it keeps
+                // the last text. Pass an empty string so the countdown disappears
+                // (leaving just the icon) once the timer goes Idle.
+                let title: Option<String> = if snap.state == TimerState::Idle {
+                    Some(String::new())
                 } else {
                     Some(match name {
                         Some(n) => format!("{} {}", n, snap.remaining_label),
@@ -49,6 +52,11 @@ pub fn spawn_tick(app: AppHandle) {
                     TimerEvent::TargetReached => ("목표 달성", "오늘 목표를 채웠어요!"),
                 };
                 let _ = app.notification().builder().title(title).body(body).sound("default").show();
+                // Play an audible alarm directly — reliable even when notifications
+                // are silenced by Focus/Do-Not-Disturb or not yet permitted.
+                let _ = std::process::Command::new("afplay")
+                    .arg("/System/Library/Sounds/Glass.aiff")
+                    .spawn();
             }
         }
     });
