@@ -50,7 +50,7 @@ pub fn run() {
             let menu = MenuBuilder::new(app).items(&[&open_item, &pause_item, &quit_item]).build()?;
 
             let _tray = TrayIconBuilder::with_id("main-tray")
-                .icon(app.default_window_icon().unwrap().clone())
+                .icon(tauri::include_image!("icons/tray.png"))
                 .icon_as_template(true)
                 .title("--:--")
                 .menu(&menu)
