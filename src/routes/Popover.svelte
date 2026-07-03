@@ -139,11 +139,10 @@
     background: transparent;
   }
 
-  /* Rounded + shadowed outer shell (margin leaves room for the drop shadow) */
+  /* Rounded outer shell */
   .popover-shell {
     margin: 10px;
     border-radius: 16px;
-    box-shadow: 0 20px 50px -15px rgba(10, 12, 20, 0.45);
     background: var(--bg);
     overflow: hidden;
     height: calc(100vh - 20px);

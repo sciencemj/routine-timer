@@ -130,6 +130,17 @@ pub fn run() {
             commands::settings_set,
             commands::db_reset,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|app, event| {
+            // macOS: clicking the Dock icon fires Reopen. The main window is
+            // hidden (not closed) on close-to-tray, so re-show it here — otherwise
+            // the Dock click does nothing and the window never comes back.
+            if let tauri::RunEvent::Reopen { .. } = event {
+                if let Some(w) = app.get_webview_window("main") {
+                    let _ = w.show();
+                    let _ = w.set_focus();
+                }
+            }
+        });
 }
