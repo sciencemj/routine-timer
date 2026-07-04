@@ -11,7 +11,6 @@ pub enum TimerState {
     Idle,
     Running,
     Paused,
-    Break,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize)]
@@ -91,7 +90,6 @@ pub struct TimerEngine {
     break_secs: i64,
     started_at: Option<DateTime<Utc>>,
     pending_completed: Option<CompletedSession>,
-    pre_pause_state: Option<TimerState>,
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────────
@@ -129,7 +127,6 @@ impl TimerEngine {
             break_secs: 0,
             started_at: None,
             pending_completed: None,
-            pre_pause_state: None,
         }
     }
 
@@ -146,7 +143,6 @@ impl TimerEngine {
         self.state = TimerState::Running;
         self.started_at = Some(self.clock.now());
         self.pending_completed = None;
-        self.pre_pause_state = None;
         match cfg.mode {
             Mode::Pomodoro => match cfg.resume {
                 // RESUME: restore the suspended block (phase, remaining, index).
@@ -239,20 +235,17 @@ impl TimerEngine {
         self.state
     }
 
-    /// Pause a running session. Running/Break → Paused; freezes the countdown.
-    /// Remembers the prior state so `resume` restores to exactly Running or Break.
+    /// Pause a running session. Running → Paused; freezes the countdown.
     pub fn pause(&mut self) {
-        if self.state == TimerState::Running || self.state == TimerState::Break {
-            self.pre_pause_state = Some(self.state);
+        if self.state == TimerState::Running {
             self.state = TimerState::Paused;
         }
     }
 
-    /// Resume from Paused, restoring to whichever state was active before `pause`.
+    /// Resume from Paused back to Running.
     pub fn resume(&mut self) {
         if self.state == TimerState::Paused {
-            self.state = self.pre_pause_state.unwrap_or(TimerState::Running);
-            self.pre_pause_state = None;
+            self.state = TimerState::Running;
         }
     }
 
@@ -268,7 +261,7 @@ impl TimerEngine {
 
     /// Manually stop the timer and return a `CompletedSession`.
     ///
-    /// - If a session is active (Running/Paused/Break): builds the session, resets to Idle, returns Some.
+    /// - If a session is active (Running/Paused): builds the session, resets to Idle, returns Some.
     /// - If Idle with a pending auto-finalized session: drains and returns it.
     /// - If Idle with nothing pending: returns None.
     pub fn stop(&mut self) -> Option<CompletedSession> {
@@ -288,7 +281,6 @@ impl TimerEngine {
                 self.state = TimerState::Idle;
                 self.started_at = None;
                 self.pending_completed = None;
-                self.pre_pause_state = None;
                 Some(done)
             }
         }

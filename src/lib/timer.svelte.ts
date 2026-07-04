@@ -14,7 +14,7 @@ class TimerStore {
   label = $state('00:00');
 
   progress = $derived(this.targetSecs > 0 ? Math.max(0, Math.min(1, this.routineTodaySecs / this.targetSecs)) : 0);
-  isActive = $derived(this.state === 'Running' || this.state === 'Break');
+  isActive = $derived(this.state === 'Running');
 
   apply(s: TimerSnapshot) {
     this.state = s.state; this.mode = s.mode; this.phase = s.phase;

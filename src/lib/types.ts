@@ -1,5 +1,5 @@
 export type Mode = 'Pomodoro' | 'Continuous';
-export type TimerStateName = 'Idle' | 'Running' | 'Paused' | 'Break';
+export type TimerStateName = 'Idle' | 'Running' | 'Paused';
 export type Phase = 'Focus' | 'Break';
 export type TimerEventName = 'FocusEnded' | 'BreakEnded' | 'TargetReached';
 export type StreakRule = 'focused' | 'any_completed' | 'all_completed';
