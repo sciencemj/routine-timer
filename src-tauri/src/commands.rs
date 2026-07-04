@@ -314,6 +314,55 @@ pub fn build_config(routine: &Routine, already_done: i64) -> TimerConfig {
     }
 }
 
+// ── Shared timer-launch helpers (timer_start / timer_switch / timer_stop) ──
+//
+// Both timer_start and timer_switch end whatever session is currently running
+// and then launch a routine from scratch; timer_stop only does the first
+// half. Factored out so a fix to the sequence can't drift between callers.
+
+/// Stop the engine (if running) and persist the completed session, if any.
+fn stop_and_persist(s: &mut AppState) -> Result<(), String> {
+    if let Some(done) = s.engine.stop() {
+        crate::db::sessions::insert(&s.db, &done).map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+/// Look up `routine_id`, compute today's already-done seconds, and start the
+/// engine for it — the launch sequence shared by timer_start and
+/// timer_switch. Returns `(snapshot, started)`: when a continuous routine
+/// already met its target today, `started` is false and `snapshot` is the
+/// CURRENT (unstarted) engine state — callers must return it as-is, without
+/// emitting any event.
+fn begin_routine(s: &mut AppState, routine_id: i64) -> Result<(TimerSnapshot, bool), String> {
+    let routine = crate::db::routines::get(&s.db, routine_id)
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| format!("routine {} not found", routine_id))?;
+    // Recompute already_done AFTER the stop+insert so fresh seconds are included
+    let (today, tz) = day_context(&s.db);
+    let sessions = crate::db::sessions::all(&s.db).map_err(|e| e.to_string())?;
+    let already_done = crate::core::stats::seconds_per_routine(&sessions, today, tz)
+        .get(&routine_id)
+        .copied()
+        .unwrap_or(0);
+    // routine already complete for today (continuous) — don't start a zero-length session
+    if !routine.pomodoro_enabled && already_done >= routine.target_seconds {
+        return Ok((s.engine.snapshot(), false));
+    }
+    // Resume a previously suspended pomodoro block, if one exists for this routine.
+    let resume = if routine.pomodoro_enabled {
+        load_pomo_states(&s.db).get(&routine_id).cloned()
+    } else {
+        None
+    };
+    let mut cfg = build_config(&routine, already_done);
+    cfg.resume = resume;
+    s.engine.start(cfg);
+    s.current_routine_name = Some(routine.name.clone());
+    clear_pomo(&s.db, routine_id)?;
+    Ok((s.engine.snapshot(), true))
+}
+
 // ── Timer commands ─────────────────────────────────────────────────────────
 
 #[tauri::command]
@@ -322,7 +371,7 @@ pub fn timer_start(
     app: AppHandle,
     routine_id: i64,
 ) -> Result<TimerSnapshot, String> {
-    let snap = {
+    let (snap, started) = {
         let mut s = state.lock().map_err(|e| e.to_string())?;
         let cur = s.engine.snapshot();
         // Early-return guard: target is already the current, still-active routine.
@@ -334,37 +383,13 @@ pub fn timer_start(
             if let Some(rid) = cur.routine_id {
                 suspend_pomo(&s.db, rid, &cur)?;
             }
-            if let Some(done) = s.engine.stop() {
-                crate::db::sessions::insert(&s.db, &done).map_err(|e| e.to_string())?;
-            }
+            stop_and_persist(&mut s)?;
         }
-        let routine = crate::db::routines::get(&s.db, routine_id)
-            .map_err(|e| e.to_string())?
-            .ok_or_else(|| format!("routine {} not found", routine_id))?;
-        // Recompute already_done AFTER the stop+insert so fresh seconds are included
-        let (today, tz) = day_context(&s.db);
-        let sessions = crate::db::sessions::all(&s.db).map_err(|e| e.to_string())?;
-        let already_done = crate::core::stats::seconds_per_routine(&sessions, today, tz)
-            .get(&routine_id)
-            .copied()
-            .unwrap_or(0);
-        // routine already complete for today (continuous) — don't start a zero-length session
-        if !routine.pomodoro_enabled && already_done >= routine.target_seconds {
-            return Ok(s.engine.snapshot());
-        }
-        // Resume a previously suspended pomodoro block, if one exists for this routine.
-        let resume = if routine.pomodoro_enabled {
-            load_pomo_states(&s.db).get(&routine_id).cloned()
-        } else {
-            None
-        };
-        let mut cfg = build_config(&routine, already_done);
-        cfg.resume = resume;
-        s.engine.start(cfg);
-        s.current_routine_name = Some(routine.name.clone());
-        clear_pomo(&s.db, routine_id)?;
-        s.engine.snapshot()
+        begin_routine(&mut s, routine_id)?
     }; // guard dropped
+    if !started {
+        return Ok(snap);
+    }
     app.emit("timer://state", &snap).map_err(|e| e.to_string())?;
     Ok(snap)
 }
@@ -412,9 +437,7 @@ pub fn timer_stop(
         // Capture the routine id BEFORE stop() resets it, so we can clear its
         // suspended state — an explicit 세션 종료 means "start fresh next time".
         let rid = s.engine.snapshot().routine_id;
-        if let Some(done) = s.engine.stop() {
-            crate::db::sessions::insert(&s.db, &done).map_err(|e| e.to_string())?;
-        }
+        stop_and_persist(&mut s)?;
         if let Some(id) = rid {
             clear_pomo(&s.db, id)?;
         }
@@ -432,43 +455,20 @@ pub fn timer_switch(
     app: AppHandle,
     routine_id: i64,
 ) -> Result<TimerSnapshot, String> {
-    let snap = {
+    let (snap, started) = {
         let mut s = state.lock().map_err(|e| e.to_string())?;
         // Suspend a running pomodoro so it can resume later, then stop+persist.
         let cur = s.engine.snapshot();
         if let Some(rid) = cur.routine_id {
             suspend_pomo(&s.db, rid, &cur)?;
         }
-        if let Some(done) = s.engine.stop() {
-            crate::db::sessions::insert(&s.db, &done).map_err(|e| e.to_string())?;
-        }
+        stop_and_persist(&mut s)?;
         // Start the new routine
-        let routine = crate::db::routines::get(&s.db, routine_id)
-            .map_err(|e| e.to_string())?
-            .ok_or_else(|| format!("routine {} not found", routine_id))?;
-        let (today, tz) = day_context(&s.db);
-        let sessions = crate::db::sessions::all(&s.db).map_err(|e| e.to_string())?;
-        let already_done = crate::core::stats::seconds_per_routine(&sessions, today, tz)
-            .get(&routine_id)
-            .copied()
-            .unwrap_or(0);
-        // routine already complete for today (continuous) — don't start a zero-length session
-        if !routine.pomodoro_enabled && already_done >= routine.target_seconds {
-            return Ok(s.engine.snapshot());
-        }
-        // Resume a previously suspended pomodoro block, if one exists for this routine.
-        let resume = if routine.pomodoro_enabled {
-            load_pomo_states(&s.db).get(&routine_id).cloned()
-        } else {
-            None
-        };
-        let mut cfg = build_config(&routine, already_done);
-        cfg.resume = resume;
-        s.engine.start(cfg);
-        s.current_routine_name = Some(routine.name.clone());
-        clear_pomo(&s.db, routine_id)?;
-        s.engine.snapshot()
+        begin_routine(&mut s, routine_id)?
     }; // guard dropped
+    if !started {
+        return Ok(snap);
+    }
     app.emit("routines://changed", ()).map_err(|e| e.to_string())?;
     app.emit("timer://state", &snap).map_err(|e| e.to_string())?;
     Ok(snap)
