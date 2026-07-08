@@ -291,6 +291,57 @@ impl TimerEngine {
         self.pending_completed.take()
     }
 
+    /// 현재 Running 상태에서 목표를 채울 때까지의 미래 phase 경계를
+    /// `(지금부터 오프셋 초, 이벤트)`로 열거한다. Running이 아니면 빈 벡터.
+    /// `tick()`의 전이 규칙(target_filled 우선, 그다음 remaining==0)을 그대로
+    /// 모사하므로, 예약한 iOS 로컬 알림이 라이브 엔진과 같은 시점에 발화한다.
+    /// `cap`개 경계 또는 24시간에서 멈춘다(무제한 target_secs==0 pomodoro 방지).
+    pub fn future_boundaries(&self, cap: usize) -> Vec<(i64, TimerEvent)> {
+        let mut out = Vec::new();
+        if self.state != TimerState::Running {
+            return out;
+        }
+        let mut offset: i64 = 0;
+        let mut phase = self.phase;
+        let mut remaining = self.remaining;
+        let mut done = self.already_done_secs + self.session_focus_secs;
+        while out.len() < cap {
+            match phase {
+                Phase::Focus => {
+                    let to_target = self.target_secs - done;
+                    // target_filled은 focus tick마다 decrement 후 검사되므로,
+                    // 이 focus 블록 안에서 목표가 먼저 차면 TargetReached로 끝난다.
+                    if self.target_secs > 0 && to_target <= remaining {
+                        offset += to_target.max(0);
+                        out.push((offset, TimerEvent::TargetReached));
+                        break;
+                    }
+                    // focus 블록이 끝남.
+                    offset += remaining;
+                    done += remaining;
+                    if self.mode == Mode::Pomodoro {
+                        out.push((offset, TimerEvent::FocusEnded));
+                        phase = Phase::Break;
+                        remaining = self.break_secs;
+                    } else {
+                        // Continuous인데 target도 없음(target==0) — 경계 없음.
+                        break;
+                    }
+                }
+                Phase::Break => {
+                    offset += remaining;
+                    out.push((offset, TimerEvent::BreakEnded));
+                    phase = Phase::Focus;
+                    remaining = self.focus_secs;
+                }
+            }
+            if offset > 24 * 3600 {
+                break;
+            }
+        }
+        out
+    }
+
     // ── Private ────────────────────────────────────────────────────────────
 
     fn build_snapshot(&self, event: Option<TimerEvent>, state_changed: bool) -> TimerSnapshot {
@@ -493,6 +544,86 @@ mod tests {
         assert_eq!(s.phase, Phase::Focus);       // did NOT flip to break
         let done = e.take_completed().unwrap();
         assert_eq!(done.seconds, 2);
+        assert!(done.completed);
+    }
+
+    // future_boundaries가 실제 tick() 이벤트 시퀀스/오프셋과 일치해야 한다.
+    fn drive_tick_boundaries(mut eng: TimerEngine) -> Vec<(i64, TimerEvent)> {
+        let mut out = Vec::new();
+        let mut t = 0i64;
+        // 최대 24h 안전 상한.
+        while eng.state() == TimerState::Running && t < 24 * 3600 {
+            let snap = eng.tick();
+            t += 1;
+            if let Some(ev) = snap.event {
+                out.push((t, ev));
+            }
+        }
+        out
+    }
+
+    fn pomo_engine() -> TimerEngine {
+        let mut eng = TimerEngine::new(Box::new(crate::core::clock::SystemClock));
+        eng.start(TimerConfig {
+            routine_id: 1,
+            mode: Mode::Pomodoro,
+            focus_secs: 1500, // 25m
+            break_secs: 300,  // 5m
+            target_secs: 3900, // 65m -> 3 focus blocks (25+25+15)
+            already_done_secs: 0,
+            resume: None,
+        });
+        eng
+    }
+
+    #[test]
+    fn future_boundaries_matches_pomodoro_tick_sequence() {
+        let predicted = pomo_engine().future_boundaries(48);
+        let actual = drive_tick_boundaries(pomo_engine());
+        assert_eq!(predicted, actual);
+        assert_eq!(
+            predicted,
+            vec![
+                (1500, TimerEvent::FocusEnded),
+                (1800, TimerEvent::BreakEnded),
+                (3300, TimerEvent::FocusEnded),
+                (3600, TimerEvent::BreakEnded),
+                (4500, TimerEvent::TargetReached),
+            ]
+        );
+    }
+
+    #[test]
+    fn future_boundaries_continuous_is_single_target() {
+        let mut eng = TimerEngine::new(Box::new(crate::core::clock::SystemClock));
+        eng.start(TimerConfig {
+            routine_id: 1, mode: Mode::Continuous,
+            focus_secs: 1500, break_secs: 300, target_secs: 600,
+            already_done_secs: 0, resume: None,
+        });
+        assert_eq!(eng.future_boundaries(48), vec![(600, TimerEvent::TargetReached)]);
+    }
+
+    #[test]
+    fn future_boundaries_empty_when_not_running() {
+        let eng = TimerEngine::new(Box::new(crate::core::clock::SystemClock));
+        assert!(eng.future_boundaries(48).is_empty());
+    }
+
+    #[test]
+    fn ticking_past_target_finalizes_completed_session() {
+        // timer_resync는 이 tick 반복을 재사용한다: gap초만큼 tick하면 완료
+        // 세션이 나오고 상태가 Idle이 된다.
+        let mut eng = TimerEngine::new(Box::new(crate::core::clock::SystemClock));
+        eng.start(TimerConfig {
+            routine_id: 7, mode: Mode::Continuous,
+            focus_secs: 1500, break_secs: 300, target_secs: 5,
+            already_done_secs: 0, resume: None,
+        });
+        for _ in 0..5 { let _ = eng.tick(); }
+        assert_eq!(eng.state(), TimerState::Idle);
+        let done = eng.take_completed().expect("완료 세션");
+        assert_eq!(done.seconds, 5);
         assert!(done.completed);
     }
 }
