@@ -31,24 +31,28 @@
     if (!isMain) return;
     let alive = true;
     let cleanup: (() => void) | undefined;
+    let removeVisibility: (() => void) | undefined;
     themeStore.init();
     initRoutinesListeners().then((fn) => { if (alive) cleanup = fn; else fn(); });
 
     // 모바일(iPhone/iPad)이면 .mobile 클래스로 safe-area·데스크톱 크롬 제거를 켠다.
+    // 데스크톱은 백그라운드 서스펜드가 없으니 visibilitychange 리스너 자체가 불필요
+    // (close-to-tray 재표시 때마다 불필요한 resync로 최대 1초가 더 깎이는 걸 방지).
     commands.isMobile().then((m) => {
-      if (alive && m) document.documentElement.classList.add('mobile');
+      if (!alive || !m) return;
+      document.documentElement.classList.add('mobile');
+      // 포그라운드 복귀 시 백그라운드 경과를 엔진에 반영(화면 보정).
+      const onVisible = () => {
+        if (document.visibilityState === 'visible') commands.timerResync();
+      };
+      document.addEventListener('visibilitychange', onVisible);
+      removeVisibility = () => document.removeEventListener('visibilitychange', onVisible);
     });
-
-    // 포그라운드 복귀 시 백그라운드 경과를 엔진에 반영(화면 보정).
-    const onVisible = () => {
-      if (document.visibilityState === 'visible') commands.timerResync();
-    };
-    document.addEventListener('visibilitychange', onVisible);
 
     return () => {
       alive = false;
       cleanup?.();
-      document.removeEventListener('visibilitychange', onVisible);
+      removeVisibility?.();
     };
   });
 </script>

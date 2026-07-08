@@ -2,7 +2,9 @@ use std::sync::Mutex;
 use std::time::Duration;
 use chrono::{DateTime, Utc};
 use tauri::{AppHandle, Emitter, Manager};
-use crate::core::timer::{TimerEngine, TimerState, TimerEvent};
+use crate::core::timer::TimerEngine;
+#[cfg(desktop)]
+use crate::core::timer::{TimerState, TimerEvent};
 
 pub struct AppState {
     pub engine: TimerEngine,
@@ -21,8 +23,17 @@ pub fn spawn_tick(app: AppHandle) {
             let (snap, name, persisted) = {
                 let state = app.state::<Mutex<AppState>>();
                 let mut s = state.lock().unwrap();
-                let snap = s.engine.tick();
-                s.last_tick_at = Utc::now();
+                let now = Utc::now();
+                // Catch up any wall-clock gap: on mobile the app is suspended in the background
+                // (and a desktop machine can sleep), freezing this loop. On resume the expired
+                // sleep fires and we advance the engine by the elapsed seconds, not just 1 — so
+                // `last_tick_at` self-heals whether this loop or `timer_resync` runs first (no race).
+                let gap = (now - s.last_tick_at).num_seconds().clamp(1, 24 * 3600);
+                let mut snap = s.engine.snapshot();
+                for _ in 0..gap {
+                    snap = s.engine.tick();
+                }
+                s.last_tick_at = now;
                 let mut persisted = false;
                 if let Some(done) = s.engine.take_completed() {
                     let _ = crate::db::sessions::insert(&s.db, &done);
@@ -32,6 +43,8 @@ pub fn spawn_tick(app: AppHandle) {
                 let name = s.current_routine_name.clone();
                 (snap, name, persisted)
             }; // guard dropped before any emit/await
+            #[cfg(mobile)]
+            let _ = &name;
             let _ = app.emit("timer://tick", &snap);
             if snap.state_changed { let _ = app.emit("timer://state", &snap); }
             if persisted { let _ = app.emit("routines://changed", ()); }
