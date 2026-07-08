@@ -6,19 +6,100 @@ pub mod mobile;
 pub mod state;
 
 use std::sync::Mutex;
-use tauri::{Manager, WebviewUrl, WebviewWindowBuilder};
+use tauri::Manager;
+#[cfg(desktop)]
+use tauri::{WebviewUrl, WebviewWindowBuilder};
+#[cfg(desktop)]
 use tauri::tray::{TrayIconBuilder, TrayIconEvent, MouseButton, MouseButtonState};
+#[cfg(desktop)]
 use tauri::menu::{MenuBuilder, MenuItemBuilder};
+#[cfg(desktop)]
 use tauri_plugin_positioner::{WindowExt, Position};
 use crate::core::clock::SystemClock;
 use crate::core::timer::TimerEngine;
 use crate::state::AppState;
+
+/// Tray icon + menubar countdown + transparent popover window + positioner —
+/// all desktop-only (no tray/menubar/floating-window concept on iOS). Cut
+/// verbatim out of `.setup(...)` so mobile can skip it entirely.
+#[cfg(desktop)]
+fn setup_desktop(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
+    app.handle().plugin(tauri_plugin_positioner::init())?;
+
+    let open_item = MenuItemBuilder::with_id("open", "대시보드 열기").build(app)?;
+    let pause_item = MenuItemBuilder::with_id("pause", "일시정지 / 계속").build(app)?;
+    let quit_item = MenuItemBuilder::with_id("quit", "종료").build(app)?;
+    let menu = MenuBuilder::new(app).items(&[&open_item, &pause_item, &quit_item]).build()?;
+
+    let _tray = TrayIconBuilder::with_id("main-tray")
+        .icon(tauri::include_image!("icons/tray.png"))
+        .icon_as_template(true)
+        .title("--:--")
+        .menu(&menu)
+        .show_menu_on_left_click(false)
+        .on_menu_event(|app, event| match event.id().as_ref() {
+            "open" => {
+                if let Some(w) = app.get_webview_window("main") {
+                    let _ = w.show();
+                    let _ = w.set_focus();
+                }
+            }
+            "pause" => {
+                let state = app.state::<std::sync::Mutex<AppState>>();
+                let mut s = state.lock().unwrap();
+                match s.engine.state() {
+                    crate::core::timer::TimerState::Paused => s.engine.resume(),
+                    crate::core::timer::TimerState::Idle => {}
+                    _ => s.engine.pause(),
+                }
+            }
+            "quit" => {
+                app.exit(0);
+            }
+            _ => {}
+        })
+        .on_tray_icon_event(|tray, event| {
+            tauri_plugin_positioner::on_tray_event(tray.app_handle(), &event);
+            if let TrayIconEvent::Click {
+                button: MouseButton::Left,
+                button_state: MouseButtonState::Up,
+                ..
+            } = event
+            {
+                let app = tray.app_handle();
+                if let Some(win) = app.get_webview_window("popover") {
+                    if win.is_visible().unwrap_or(false) {
+                        let _ = win.hide();
+                    } else {
+                        let _ = win.move_window(Position::TrayBottomCenter);
+                        let _ = win.show();
+                        let _ = win.set_focus();
+                    }
+                }
+            }
+        })
+        .build(app)?;
+
+    let _popover = WebviewWindowBuilder::new(app, "popover", WebviewUrl::App("index.html#/popover".into()))
+        .decorations(false)
+        .always_on_top(true)
+        .skip_taskbar(true)
+        .visible(false)
+        .resizable(false)
+        .transparent(true)
+        .inner_size(400.0, 560.0)
+        .title("")
+        .build()?;
+
+    Ok(())
+}
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_notification::init())
         .on_window_event(|window, event| {
+            #[cfg(desktop)]
             match window.label() {
                 "main" => {
                     if let tauri::WindowEvent::CloseRequested { api, .. } = event {
@@ -31,6 +112,8 @@ pub fn run() {
                 }
                 _ => {}
             }
+            #[cfg(mobile)]
+            let _ = (window, event);
         })
         .setup(|app| {
             let dir = app.path().app_data_dir().expect("no app data dir");
@@ -51,72 +134,8 @@ pub fn run() {
                 let _ = app.notification().request_permission();
             }
 
-            app.handle().plugin(tauri_plugin_positioner::init())?;
-
-            let open_item = MenuItemBuilder::with_id("open", "대시보드 열기").build(app)?;
-            let pause_item = MenuItemBuilder::with_id("pause", "일시정지 / 계속").build(app)?;
-            let quit_item = MenuItemBuilder::with_id("quit", "종료").build(app)?;
-            let menu = MenuBuilder::new(app).items(&[&open_item, &pause_item, &quit_item]).build()?;
-
-            let _tray = TrayIconBuilder::with_id("main-tray")
-                .icon(tauri::include_image!("icons/tray.png"))
-                .icon_as_template(true)
-                .title("--:--")
-                .menu(&menu)
-                .show_menu_on_left_click(false)
-                .on_menu_event(|app, event| match event.id().as_ref() {
-                    "open" => {
-                        if let Some(w) = app.get_webview_window("main") {
-                            let _ = w.show();
-                            let _ = w.set_focus();
-                        }
-                    }
-                    "pause" => {
-                        let state = app.state::<std::sync::Mutex<AppState>>();
-                        let mut s = state.lock().unwrap();
-                        match s.engine.state() {
-                            crate::core::timer::TimerState::Paused => s.engine.resume(),
-                            crate::core::timer::TimerState::Idle => {}
-                            _ => s.engine.pause(),
-                        }
-                    }
-                    "quit" => {
-                        app.exit(0);
-                    }
-                    _ => {}
-                })
-                .on_tray_icon_event(|tray, event| {
-                    tauri_plugin_positioner::on_tray_event(tray.app_handle(), &event);
-                    if let TrayIconEvent::Click {
-                        button: MouseButton::Left,
-                        button_state: MouseButtonState::Up,
-                        ..
-                    } = event
-                    {
-                        let app = tray.app_handle();
-                        if let Some(win) = app.get_webview_window("popover") {
-                            if win.is_visible().unwrap_or(false) {
-                                let _ = win.hide();
-                            } else {
-                                let _ = win.move_window(Position::TrayBottomCenter);
-                                let _ = win.show();
-                                let _ = win.set_focus();
-                            }
-                        }
-                    }
-                })
-                .build(app)?;
-
-            let _popover = WebviewWindowBuilder::new(app, "popover", WebviewUrl::App("index.html#/popover".into()))
-                .decorations(false)
-                .always_on_top(true)
-                .skip_taskbar(true)
-                .visible(false)
-                .resizable(false)
-                .transparent(true)
-                .inner_size(400.0, 560.0)
-                .title("")
-                .build()?;
+            #[cfg(desktop)]
+            setup_desktop(app)?;
 
             Ok(())
         })
@@ -139,6 +158,7 @@ pub fn run() {
             commands::settings_get,
             commands::settings_set,
             commands::db_reset,
+            commands::is_mobile,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
@@ -146,11 +166,14 @@ pub fn run() {
             // macOS: clicking the Dock icon fires Reopen. The main window is
             // hidden (not closed) on close-to-tray, so re-show it here — otherwise
             // the Dock click does nothing and the window never comes back.
+            #[cfg(desktop)]
             if let tauri::RunEvent::Reopen { .. } = event {
                 if let Some(w) = app.get_webview_window("main") {
                     let _ = w.show();
                     let _ = w.set_focus();
                 }
             }
+            #[cfg(mobile)]
+            let _ = (app, event);
         });
 }

@@ -592,6 +592,13 @@ pub fn db_reset(state: State<'_, Mutex<AppState>>, app: AppHandle) -> Result<Tim
     Ok(snap)
 }
 
+/// 프론트가 모바일 레이아웃(safe-area, 데스크톱 크롬 제거)을 켜기 위한 플랫폼
+/// 감지. 뷰포트 폭 기반 CSS는 iPad를 데스크톱으로 오판하므로 Rust가 알려준다.
+#[tauri::command]
+pub fn is_mobile() -> bool {
+    cfg!(mobile)
+}
+
 #[tauri::command]
 pub fn settings_set(
     state: State<'_, Mutex<AppState>>,
