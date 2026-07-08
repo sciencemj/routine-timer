@@ -19,4 +19,6 @@ export const commands = {
   settingsGet: () => invoke<Record<string, string>>('settings_get'),
   settingsSet: (key: string, value: string) => invoke<void>('settings_set', { key, value }),
   dbReset: () => invoke<TimerSnapshot>('db_reset'),
+  timerResync: () => invoke<TimerSnapshot>('timer_resync'),
+  isMobile: () => invoke<boolean>('is_mobile'),
 };

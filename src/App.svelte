@@ -9,6 +9,7 @@
   import { getCurrentWindow } from '@tauri-apps/api/window';
   import { themeStore } from '$lib/theme.svelte';
   import { initRoutinesListeners } from '$lib/routines.svelte';
+  import { commands } from '$lib/commands';
 
   const isMain = getCurrentWindow().label === 'main';
 
@@ -32,7 +33,23 @@
     let cleanup: (() => void) | undefined;
     themeStore.init();
     initRoutinesListeners().then((fn) => { if (alive) cleanup = fn; else fn(); });
-    return () => { alive = false; cleanup?.(); };
+
+    // 모바일(iPhone/iPad)이면 .mobile 클래스로 safe-area·데스크톱 크롬 제거를 켠다.
+    commands.isMobile().then((m) => {
+      if (alive && m) document.documentElement.classList.add('mobile');
+    });
+
+    // 포그라운드 복귀 시 백그라운드 경과를 엔진에 반영(화면 보정).
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') commands.timerResync();
+    };
+    document.addEventListener('visibilitychange', onVisible);
+
+    return () => {
+      alive = false;
+      cleanup?.();
+      document.removeEventListener('visibilitychange', onVisible);
+    };
   });
 </script>
 
@@ -110,5 +127,16 @@
     flex: 1;
     overflow-y: auto;
     background: var(--bg);
+  }
+
+  /* iOS/iPadOS: 노치·홈 인디케이터 여백 + 데스크톱 traffic-light 패딩 제거. */
+  :global(html.mobile) .top-bar {
+    padding-left: max(16px, env(safe-area-inset-left));
+    padding-right: max(16px, env(safe-area-inset-right));
+    padding-top: env(safe-area-inset-top);
+    height: calc(44px + env(safe-area-inset-top));
+  }
+  :global(html.mobile) .content {
+    padding-bottom: env(safe-area-inset-bottom);
   }
 </style>
