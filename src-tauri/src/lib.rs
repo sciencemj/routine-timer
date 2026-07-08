@@ -39,6 +39,7 @@ pub fn run() {
                 engine: TimerEngine::new(Box::new(SystemClock)),
                 db: conn,
                 current_routine_name: None,
+                last_tick_at: chrono::Utc::now(),
             }));
             crate::state::spawn_tick(app.handle().clone());
 
@@ -124,6 +125,7 @@ pub fn run() {
             commands::timer_skip_break,
             commands::timer_switch,
             commands::timer_get_state,
+            commands::timer_resync,
             commands::stats_today,
             commands::stats_report,
             commands::settings_get,

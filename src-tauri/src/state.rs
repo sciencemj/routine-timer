@@ -1,5 +1,6 @@
 use std::sync::Mutex;
 use std::time::Duration;
+use chrono::{DateTime, Utc};
 use tauri::{AppHandle, Emitter, Manager};
 use tauri_plugin_notification::NotificationExt;
 use crate::core::timer::{TimerEngine, TimerState, TimerEvent};
@@ -8,6 +9,9 @@ pub struct AppState {
     pub engine: TimerEngine,
     pub db: rusqlite::Connection,
     pub current_routine_name: Option<String>, // for the tray title "딥워크 24:13"
+    /// 마지막으로 tick 루프가 엔진을 전진시킨 벽시계 시각. iOS 백그라운드 복귀 시
+    /// (now - last_tick_at)만큼 fast-forward해 화면을 보정한다(timer_resync).
+    pub last_tick_at: DateTime<Utc>,
 }
 
 pub fn spawn_tick(app: AppHandle) {
@@ -19,6 +23,7 @@ pub fn spawn_tick(app: AppHandle) {
                 let state = app.state::<Mutex<AppState>>();
                 let mut s = state.lock().unwrap();
                 let snap = s.engine.tick();
+                s.last_tick_at = Utc::now();
                 let mut persisted = false;
                 if let Some(done) = s.engine.take_completed() {
                     let _ = crate::db::sessions::insert(&s.db, &done);
@@ -77,6 +82,7 @@ mod tests {
             engine: TimerEngine::new(Box::new(SystemClock)),
             db,
             current_routine_name: None,
+            last_tick_at: Utc::now(),
         };
         crate::db::routines::create(
             &st.db,
