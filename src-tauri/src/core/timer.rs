@@ -312,7 +312,7 @@ impl TimerEngine {
                     // target_filled은 focus tick마다 decrement 후 검사되므로,
                     // 이 focus 블록 안에서 목표가 먼저 차면 TargetReached로 끝난다.
                     if self.target_secs > 0 && to_target <= remaining {
-                        offset += to_target.max(0);
+                        offset += to_target.max(1);
                         out.push((offset, TimerEvent::TargetReached));
                         break;
                     }
@@ -594,14 +594,39 @@ mod tests {
     }
 
     #[test]
+    fn future_boundaries_matches_tick_when_pomodoro_target_already_met() {
+        // 오늘 목표를 이미 채운 포모도로 루틴을 다시 시작하면 already_done==target.
+        // 첫 tick에서 곧바로 TargetReached가 t=1에 발화한다 — future_boundaries도 t=1.
+        fn met_engine() -> TimerEngine {
+            let mut e = TimerEngine::new(Box::new(crate::core::clock::SystemClock));
+            e.start(TimerConfig {
+                routine_id: 1, mode: Mode::Pomodoro,
+                focus_secs: 1500, break_secs: 300, target_secs: 3900,
+                already_done_secs: 3900, resume: None,
+            });
+            e
+        }
+        let predicted = met_engine().future_boundaries(48);
+        let actual = drive_tick_boundaries(met_engine());
+        assert_eq!(predicted, actual);
+        assert_eq!(predicted, vec![(1, TimerEvent::TargetReached)]);
+    }
+
+    #[test]
     fn future_boundaries_continuous_is_single_target() {
-        let mut eng = TimerEngine::new(Box::new(crate::core::clock::SystemClock));
-        eng.start(TimerConfig {
-            routine_id: 1, mode: Mode::Continuous,
-            focus_secs: 1500, break_secs: 300, target_secs: 600,
-            already_done_secs: 0, resume: None,
-        });
-        assert_eq!(eng.future_boundaries(48), vec![(600, TimerEvent::TargetReached)]);
+        fn cont_engine() -> TimerEngine {
+            let mut e = TimerEngine::new(Box::new(crate::core::clock::SystemClock));
+            e.start(TimerConfig {
+                routine_id: 1, mode: Mode::Continuous,
+                focus_secs: 1500, break_secs: 300, target_secs: 600,
+                already_done_secs: 0, resume: None,
+            });
+            e
+        }
+        let predicted = cont_engine().future_boundaries(48);
+        let actual = drive_tick_boundaries(cont_engine());
+        assert_eq!(predicted, actual);
+        assert_eq!(predicted, vec![(600, TimerEvent::TargetReached)]);
     }
 
     #[test]
