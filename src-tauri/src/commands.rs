@@ -391,6 +391,8 @@ pub fn timer_start(
         return Ok(snap);
     }
     app.emit("timer://state", &snap).map_err(|e| e.to_string())?;
+    #[cfg(mobile)]
+    crate::mobile::reschedule(&app, state.inner());
     Ok(snap)
 }
 
@@ -402,6 +404,8 @@ pub fn timer_pause(state: State<'_, Mutex<AppState>>, app: AppHandle) -> Result<
         s.engine.snapshot()
     }; // guard dropped
     app.emit("timer://state", &snap).map_err(|e| e.to_string())?;
+    #[cfg(mobile)]
+    crate::mobile::reschedule(&app, state.inner());
     Ok(snap)
 }
 
@@ -413,6 +417,8 @@ pub fn timer_resume(state: State<'_, Mutex<AppState>>, app: AppHandle) -> Result
         s.engine.snapshot()
     }; // guard dropped
     app.emit("timer://state", &snap).map_err(|e| e.to_string())?;
+    #[cfg(mobile)]
+    crate::mobile::reschedule(&app, state.inner());
     Ok(snap)
 }
 
@@ -424,6 +430,8 @@ pub fn timer_skip_break(state: State<'_, Mutex<AppState>>, app: AppHandle) -> Re
         s.engine.snapshot()
     }; // guard dropped
     app.emit("timer://state", &snap).map_err(|e| e.to_string())?;
+    #[cfg(mobile)]
+    crate::mobile::reschedule(&app, state.inner());
     Ok(snap)
 }
 
@@ -446,6 +454,8 @@ pub fn timer_stop(
     }; // guard dropped
     app.emit("routines://changed", ()).map_err(|e| e.to_string())?;
     app.emit("timer://state", &snap).map_err(|e| e.to_string())?;
+    #[cfg(mobile)]
+    crate::mobile::reschedule(&app, state.inner());
     Ok(())
 }
 
@@ -471,6 +481,8 @@ pub fn timer_switch(
     }
     app.emit("routines://changed", ()).map_err(|e| e.to_string())?;
     app.emit("timer://state", &snap).map_err(|e| e.to_string())?;
+    #[cfg(mobile)]
+    crate::mobile::reschedule(&app, state.inner());
     Ok(snap)
 }
 
@@ -575,6 +587,8 @@ pub fn db_reset(state: State<'_, Mutex<AppState>>, app: AppHandle) -> Result<Tim
     }; // guard dropped
     app.emit("routines://changed", ()).map_err(|e| e.to_string())?;
     app.emit("timer://state", &snap).map_err(|e| e.to_string())?;
+    #[cfg(mobile)]
+    crate::mobile::reschedule(&app, state.inner());
     Ok(snap)
 }
 

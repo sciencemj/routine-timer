@@ -1,6 +1,8 @@
 pub mod commands;
 pub mod core;
 pub mod db;
+#[cfg(mobile)]
+pub mod mobile;
 pub mod state;
 
 use std::sync::Mutex;
@@ -42,6 +44,12 @@ pub fn run() {
                 last_tick_at: chrono::Utc::now(),
             }));
             crate::state::spawn_tick(app.handle().clone());
+
+            #[cfg(mobile)]
+            {
+                use tauri_plugin_notification::NotificationExt;
+                let _ = app.notification().request_permission();
+            }
 
             app.handle().plugin(tauri_plugin_positioner::init())?;
 
