@@ -1,0 +1,8 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "desktop",
+  "description": "Desktop-only capability (tray/menubar popover positioning). tauri-plugin-positioner is a desktop-only Cargo dependency, so this permission must not be requested on mobile builds, where the plugin isn't compiled in.",
+  "platforms": ["macOS", "windows", "linux"],
+  "windows": ["main", "popover"],
+  "permissions": ["positioner:default"]
+}

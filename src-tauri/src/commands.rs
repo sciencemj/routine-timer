@@ -391,6 +391,8 @@ pub fn timer_start(
         return Ok(snap);
     }
     app.emit("timer://state", &snap).map_err(|e| e.to_string())?;
+    #[cfg(mobile)]
+    crate::mobile::reschedule(&app, state.inner());
     Ok(snap)
 }
 
@@ -402,6 +404,8 @@ pub fn timer_pause(state: State<'_, Mutex<AppState>>, app: AppHandle) -> Result<
         s.engine.snapshot()
     }; // guard dropped
     app.emit("timer://state", &snap).map_err(|e| e.to_string())?;
+    #[cfg(mobile)]
+    crate::mobile::reschedule(&app, state.inner());
     Ok(snap)
 }
 
@@ -413,6 +417,8 @@ pub fn timer_resume(state: State<'_, Mutex<AppState>>, app: AppHandle) -> Result
         s.engine.snapshot()
     }; // guard dropped
     app.emit("timer://state", &snap).map_err(|e| e.to_string())?;
+    #[cfg(mobile)]
+    crate::mobile::reschedule(&app, state.inner());
     Ok(snap)
 }
 
@@ -424,6 +430,8 @@ pub fn timer_skip_break(state: State<'_, Mutex<AppState>>, app: AppHandle) -> Re
         s.engine.snapshot()
     }; // guard dropped
     app.emit("timer://state", &snap).map_err(|e| e.to_string())?;
+    #[cfg(mobile)]
+    crate::mobile::reschedule(&app, state.inner());
     Ok(snap)
 }
 
@@ -446,6 +454,8 @@ pub fn timer_stop(
     }; // guard dropped
     app.emit("routines://changed", ()).map_err(|e| e.to_string())?;
     app.emit("timer://state", &snap).map_err(|e| e.to_string())?;
+    #[cfg(mobile)]
+    crate::mobile::reschedule(&app, state.inner());
     Ok(())
 }
 
@@ -471,6 +481,8 @@ pub fn timer_switch(
     }
     app.emit("routines://changed", ()).map_err(|e| e.to_string())?;
     app.emit("timer://state", &snap).map_err(|e| e.to_string())?;
+    #[cfg(mobile)]
+    crate::mobile::reschedule(&app, state.inner());
     Ok(snap)
 }
 
@@ -478,6 +490,42 @@ pub fn timer_switch(
 pub fn timer_get_state(state: State<'_, Mutex<AppState>>) -> Result<TimerSnapshot, String> {
     let s = state.lock().map_err(|e| e.to_string())?;
     Ok(s.engine.snapshot())
+}
+
+/// iOS 포그라운드 복귀용: 앱이 백그라운드에 있는 동안 tick 루프가 멈춰
+/// 엔진이 얼어붙는다. 복귀 시 (now - last_tick_at)초만큼 tick()을 반복해
+/// 경과를 따라잡고(위상 전환·target finalize 재사용), 완료 세션을 persist한다.
+/// 알람은 이미 예약 알림이 백그라운드에서 울렸으므로 여기서 알림은 쏘지 않는다.
+#[tauri::command]
+pub fn timer_resync(
+    state: State<'_, Mutex<AppState>>,
+    app: AppHandle,
+) -> Result<TimerSnapshot, String> {
+    let (snap, persisted) = {
+        let mut s = state.lock().map_err(|e| e.to_string())?;
+        let now = chrono::Utc::now();
+        // 음수(시계 역행)면 0, 비정상적으로 크면 24h로 클램프.
+        let gap = (now - s.last_tick_at).num_seconds().clamp(0, 24 * 3600);
+        s.last_tick_at = now;
+        for _ in 0..gap {
+            let _ = s.engine.tick();
+        }
+        let mut persisted = false;
+        if let Some(done) = s.engine.take_completed() {
+            crate::db::sessions::insert(&s.db, &done).map_err(|e| e.to_string())?;
+            s.current_routine_name = None;
+            persisted = true;
+        }
+        (s.engine.snapshot(), persisted)
+    }; // guard dropped before emit
+    if persisted {
+        app.emit("routines://changed", ()).map_err(|e| e.to_string())?;
+    }
+    app.emit("timer://state", &snap).map_err(|e| e.to_string())?;
+    // 모바일: 미래 경계 스케줄을 현재 상태에 맞춰 갱신(Task 3에서 정의).
+    #[cfg(mobile)]
+    crate::mobile::reschedule(&app, state.inner());
+    Ok(snap)
 }
 
 // ── Stats + Settings commands ──────────────────────────────────────────────
@@ -539,7 +587,16 @@ pub fn db_reset(state: State<'_, Mutex<AppState>>, app: AppHandle) -> Result<Tim
     }; // guard dropped
     app.emit("routines://changed", ()).map_err(|e| e.to_string())?;
     app.emit("timer://state", &snap).map_err(|e| e.to_string())?;
+    #[cfg(mobile)]
+    crate::mobile::reschedule(&app, state.inner());
     Ok(snap)
+}
+
+/// 프론트가 모바일 레이아웃(safe-area, 데스크톱 크롬 제거)을 켜기 위한 플랫폼
+/// 감지. 뷰포트 폭 기반 CSS는 iPad를 데스크톱으로 오판하므로 Rust가 알려준다.
+#[tauri::command]
+pub fn is_mobile() -> bool {
+    cfg!(mobile)
 }
 
 #[tauri::command]

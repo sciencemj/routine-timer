@@ -21,7 +21,6 @@
     "core:tray:allow-set-icon",
     "core:tray:allow-set-visible",
     "core:menu:default",
-    "notification:default",
-    "positioner:default"
+    "notification:default"
   ]
 }

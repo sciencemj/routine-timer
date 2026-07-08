@@ -20,9 +20,19 @@ tauri-build = { version = "2.6.3", features = [] }
 [dependencies]
 tauri = { version = "2.11.4", features = ["tray-icon", "image-png", "macos-private-api"] }
 tauri-plugin-notification = "2.3.3"
-tauri-plugin-positioner = { version = "2.3.2", features = ["tray-icon"] }
 rusqlite = { version = "0.40.1", features = ["bundled"] }
 chrono = { version = "0.4.45", features = ["serde"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tokio = { version = "1", features = ["time"] }
+time = "0.3"
+
+# `cfg(desktop)` is a Tauri-only rustc-cfg alias set by tauri-build's own build
+# script (visible to `#[cfg(desktop)]` in source), NOT a real rustc/Cargo target
+# key — Cargo's `[target.'cfg(...)']` predicates only understand actual target
+# keys (target_os, target_family, ...), so `cfg(desktop)` here would silently
+# never match and drop this dependency on every platform, including macOS.
+# tauri-build defines desktop == target_os is neither ios nor android, so we
+# spell that out explicitly (matches every official tauri-plugin-* Cargo.toml).
+[target.'cfg(not(any(target_os = "ios", target_os = "android")))'.dependencies]
+tauri-plugin-positioner = { version = "2.3.2", features = ["tray-icon"] }
